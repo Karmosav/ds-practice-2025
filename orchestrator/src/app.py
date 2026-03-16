@@ -3,6 +3,7 @@ import os
 import grpc
 import json
 import logging
+import threading
 from flask import Flask, request
 from flask_cors import CORS
 from concurrent.futures import ThreadPoolExecutor
@@ -145,19 +146,127 @@ def checkout():
             if not all(f.result() for f in futures):
                 return {"error": "Failed to initialize all services"}, 500
 
-        # Start the checkout flow by calling transaction verification, which will orchestrate the rest of the flow
-        with grpc.insecure_channel("transaction_verification:50052") as channel:
-            stub = transaction_verification_grpc.TransactionVerificationServiceStub(channel)
-            final_resp = stub.StartCheckoutFlow(
-                transaction_verification.StartCheckoutFlowRequest(order_id=order_id)
-            )
+        with grpc.insecure_channel("transaction_verification:50052") as tx_channel, \
+             grpc.insecure_channel("fraud_detection:50051") as fd_channel, \
+             grpc.insecure_channel("suggestions:50053") as sg_channel:
 
-        final_vector_clock = list(final_resp.vector_clock)
+            tx_stub = transaction_verification_grpc.TransactionVerificationServiceStub(tx_channel)
+            fd_stub = fraud_detection_grpc.FraudDetectionServiceStub(fd_channel)
+            sg_stub = suggestions_grpc.SuggestionsServiceStub(sg_channel)
+
+            stop_event = threading.Event()
+            failure_message = [None]
+            final_vector_clock = [[0, 0, 0]]
+            suggestions_out = [[]]
+            state_lock = threading.Lock()
+
+            def merge_vc(vc1, vc2):
+                return [max(vc1[i], vc2[i]) for i in range(3)]
+
+            def mark_failure(message, vc):
+                with state_lock:
+                    if failure_message[0] is None:
+                        failure_message[0] = message
+                        final_vector_clock[0] = list(vc)
+                stop_event.set()
+
+            def run_event_a():
+                if stop_event.is_set():
+                    return None
+                resp = tx_stub.VerifyItems(
+                    transaction_verification.OrderEventRequest(order_id=order_id, incoming_vc=[0, 0, 0])
+                )
+                if resp.fail:
+                    mark_failure(resp.message, resp.vc)
+                    return None
+                return resp
+
+            def run_event_b():
+                if stop_event.is_set():
+                    return None
+                resp = tx_stub.VerifyUserData(
+                    transaction_verification.OrderEventRequest(order_id=order_id, incoming_vc=[0, 0, 0])
+                )
+                if resp.fail:
+                    mark_failure(resp.message, resp.vc)
+                    return None
+                return resp
+
+            with ThreadPoolExecutor(max_workers=6) as executor:
+                future_a = executor.submit(run_event_a)
+                future_b = executor.submit(run_event_b)
+
+                def run_event_c():
+                    resp_a = future_a.result()
+                    if resp_a is None or stop_event.is_set():
+                        return None
+                    resp = tx_stub.VerifyCardFormat(
+                        transaction_verification.OrderEventRequest(order_id=order_id, incoming_vc=list(resp_a.vc))
+                    )
+                    if resp.fail:
+                        mark_failure(resp.message, resp.vc)
+                        return None
+                    return resp
+
+                def run_event_d():
+                    resp_b = future_b.result()
+                    if resp_b is None or stop_event.is_set():
+                        return None
+                    resp = fd_stub.CheckUserFraud(
+                        fraud_detection.OrderEventRequest(order_id=order_id, incoming_vc=list(resp_b.vc))
+                    )
+                    if resp.fail:
+                        mark_failure(resp.message, resp.vc)
+                        return None
+                    return resp
+
+                future_c = executor.submit(run_event_c)
+                future_d = executor.submit(run_event_d)
+
+                def run_event_e():
+                    resp_c = future_c.result()
+                    resp_d = future_d.result()
+                    if resp_c is None or resp_d is None or stop_event.is_set():
+                        return None
+                    merged_vc = merge_vc(list(resp_c.vc), list(resp_d.vc))
+                    resp = fd_stub.CheckCardFraud(
+                        fraud_detection.OrderEventRequest(order_id=order_id, incoming_vc=merged_vc)
+                    )
+                    if resp.fail:
+                        mark_failure(resp.message, resp.vc)
+                        return None
+                    return resp
+
+                future_e = executor.submit(run_event_e)
+
+                def run_event_f():
+                    resp_e = future_e.result()
+                    if resp_e is None or stop_event.is_set():
+                        return None
+                    resp = sg_stub.GenerateSuggestions(
+                        suggestions.OrderEventRequest(order_id=order_id, incoming_vc=list(resp_e.vc))
+                    )
+                    if resp.fail:
+                        mark_failure(resp.message, resp.vc)
+                        return None
+                    with state_lock:
+                        final_vector_clock[0] = list(resp.vc)
+                        suggestions_out[0] = [
+                            {"title": s.title, "author": s.author} for s in resp.suggestions
+                        ]
+                    return resp
+
+                future_f = executor.submit(run_event_f)
+                future_f.result()
+
+        success = not stop_event.is_set()
+        status = "Order Approved" if success else (failure_message[0] or "Order Declined")
+
         cleanup_results = []
         with ThreadPoolExecutor(max_workers=3) as executor:
             cleanup_services = ["transaction_verification", "fraud_detection", "suggestions"]
             cleanup_futures = {
-                executor.submit(cleanup_order, order_id, final_vector_clock, service_name): service_name
+                executor.submit(cleanup_order, order_id, final_vector_clock[0], service_name): service_name
                 for service_name in cleanup_services
             }
             for cleanup_future, service_name in cleanup_futures.items():
@@ -178,13 +287,10 @@ def checkout():
 
         return {
             "orderId": order_id,
-            "success": final_resp.success,
-            "status": final_resp.message,
-            "finalVectorClock": final_vector_clock,
-            "suggestedBooks": [
-                {"title": s.title, "author": s.author}
-                for s in final_resp.suggestions
-            ],
+            "success": success,
+            "status": status,
+            "finalVectorClock": final_vector_clock[0],
+            "suggestedBooks": suggestions_out[0],
             "cleanup": {
                 "success": cleanup_ok,
                 "results": cleanup_results,

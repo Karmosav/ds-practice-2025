@@ -5,8 +5,8 @@ package suggestions;
 service SuggestionsService {
     rpc InitOrder (InitOrderRequest) returns (InitOrderResponse);
 
-    // fraud service notifies suggestions service that e completed
-    rpc NotifyECompleted (DependencyNotificationRequest) returns (Ack);
+    // Explicit event RPC for checkout flow (f)
+    rpc GenerateSuggestions (OrderEventRequest) returns (OrderEventResponse);
 
     // orchestrator broadcasts final cleanup after checkout flow ends
     rpc CleanupOrder (CleanupOrderRequest) returns (CleanupOrderResponse);
@@ -22,14 +22,21 @@ message InitOrderResponse {
     bool acknowledged = 1;
 }
 
-message Ack {
-    bool ok = 1;
+message BookSuggestion {
+    string title = 1;
+    string author = 2;
 }
 
-message DependencyNotificationRequest {
+message OrderEventRequest {
     string order_id = 1;
-    string event_name = 2;
-    repeated int32 vector_clock = 3;
+    repeated int32 incoming_vc = 2;
+}
+
+message OrderEventResponse {
+    bool fail = 1;
+    string message = 2;
+    repeated int32 vc = 3;
+    repeated BookSuggestion suggestions = 4;
 }
 
 message CleanupOrderRequest {

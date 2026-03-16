@@ -12,11 +12,6 @@ sys.path.insert(0, suggestions_grpc_path)
 import suggestions_pb2 as suggestions
 import suggestions_pb2_grpc as suggestions_grpc
 
-transaction_verification_grpc_path = os.path.abspath(os.path.join(FILE, '../../../utils/pb/transaction_verification'))
-sys.path.insert(0, transaction_verification_grpc_path)
-import transaction_verification_pb2 as transaction_verification
-import transaction_verification_pb2_grpc as transaction_verification_grpc
-
 
 MY_IDX = 2
 ORDER_CACHE = {}
@@ -105,8 +100,7 @@ class OrderState:
     def __init__(self, order_data):
         self.order_data = order_data
         self.local_vc = zero_vc() # vector clock tracking this service's view of the order state
-        self.event_vc = {} # vector clocks for completed events, e.g. {"e": [1,3,0], "f": [1,3,1]}
-        self.f_started = False
+        self.event_vc = {}
         self.lock = threading.Lock()
         self.cond = threading.Condition(self.lock)
 
@@ -144,24 +138,39 @@ class SuggestionsService(suggestions_grpc.SuggestionsServiceServicer):
             context.set_details(str(e))
             return suggestions.InitOrderResponse(acknowledged=False)
 
-    # notify that e completed, with the vector clock from e. We update our local vector clock, record
-    # the event vc for e, and start event f once.
-    def NotifyECompleted(self, request, context):
+    # Explicit event RPC: f
+    def GenerateSuggestions(self, request, context):
         state = self._get_state_or_abort(request.order_id, context)
         if state is None:
-            return suggestions.Ack(ok=False)
+            return suggestions.OrderEventResponse(
+                fail=True,
+                message="Order not initialized",
+                vc=zero_vc(),
+                suggestions=[],
+            )
+
         with state.cond:
-            state.local_vc = merge_and_increment(state.local_vc, list(request.vector_clock), MY_IDX)
-            state.event_vc["e"] = list(request.vector_clock)
-            print(f"[SG] got e vc={request.vector_clock}, local={state.local_vc}")
+            incoming_vc = list(request.incoming_vc)
+            state.local_vc = merge_and_increment(state.local_vc, incoming_vc, MY_IDX)
 
-            if not state.f_started:
-                state.f_started = True
-                threading.Thread(target=self._run_event_f, args=(request.order_id,)).start()
+            recommendations = _generate_ai_recommendations(state.order_data) or [
+                {"title": "Dune", "author": "Frank Herbert"},
+                {"title": "Foundation", "author": "Isaac Asimov"},
+                {"title": "1984", "author": "George Orwell"},
+            ]
 
-            state.cond.notify_all()
+            state.event_vc["f"] = list(state.local_vc)
+            vc_out = list(state.local_vc)
+            print(f"[SG] event f vc={state.local_vc}")
 
-        return suggestions.Ack(ok=True)
+        return suggestions.OrderEventResponse(
+            fail=False,
+            message="OK",
+            vc=vc_out,
+            suggestions=[
+                suggestions.BookSuggestion(title=item["title"], author=item["author"]) for item in recommendations
+            ],
+        )
 
     # Final cleanup event broadcast by orchestrator.
     # Service only clears cached order state if local_vc <= final_vector_clock.
@@ -199,59 +208,6 @@ class SuggestionsService(suggestions_grpc.SuggestionsServiceServicer):
             message="Cleanup rejected: local vector clock is not <= final vector clock",
             local_vector_clock=local_vc,
         )
-
-    # Event f: depends on e and generates final book recommendations.
-    # Once complete, sends FinalizeOrder(success=True) back to transaction verification.
-    def _run_event_f(self, order_id):
-        with ORDER_CACHE_LOCK:
-            state = ORDER_CACHE.get(order_id)
-        if state is None:
-            return
-
-        with state.cond:
-            state.cond.wait_for(lambda: "e" in state.event_vc)
-
-            required = state.event_vc["e"]
-            state.cond.wait_for(lambda: vc_leq(required, state.local_vc))
-
-            state.local_vc = merge_and_increment(state.local_vc, required, MY_IDX)
-
-            recommendations = _generate_ai_recommendations(state.order_data) or [
-                {"title": "Dune", "author": "Frank Herbert"},
-                {"title": "Foundation", "author": "Isaac Asimov"},
-                {"title": "1984", "author": "George Orwell"},
-            ]
-
-            state.event_vc["f"] = list(state.local_vc)
-            print(f"[SG] event f vc={state.local_vc}")
-
-        self._send_success(order_id, recommendations, state.event_vc["f"])
-
-    # Sends successful completion with recommendations and final vector clock.
-    def _send_success(self, order_id, recommendations, final_vc):
-        try:
-            with grpc.insecure_channel("transaction_verification:50052") as channel:
-                stub = transaction_verification_grpc.TransactionVerificationServiceStub(channel)
-                # We call FinalizeOrder on the transaction verification service to indicate that the checkout flow has completed successfully, 
-                # and we include the final vector clock and book recommendations in this call. This allows the transaction verification service to return the final response to the user with the recommendations included.
-                stub.FinalizeOrder(
-                    transaction_verification.FinalizeOrderRequest(
-                        order_id=order_id,
-                        success=True,
-                        message="Order Approved",
-                        vector_clock=final_vc,
-                        suggestions=[
-                            transaction_verification.BookSuggestion(
-                                title=item["title"],
-                                author=item["author"]
-                            )
-                            for item in recommendations
-                        ]
-                    )
-                )
-        except Exception as e:
-            print(f"[SG] failed to send success: {e}")
-
 
 def serve():
     # Bootstraps and starts the gRPC server for this service.
