@@ -39,6 +39,7 @@ services:
     depends_on:
       - fraud_detection
       - suggestions
+      - orderqueue
   fraud_detection:
     build:
       # Use the current directory as the build context
@@ -102,3 +103,46 @@ services:
       - ./utils:/app/utils:z
       # Transaction verification source (exclusive)
       - ./transaction_verification/src:/app/transaction_verification/src:Z
+
+  orderqueue:
+    build:
+      context: ./
+      dockerfile: ./orderqueue/Dockerfile
+    ports:
+      - 50054:50054
+    environment:
+      - PYTHONUNBUFFERED=TRUE
+      - PYTHONFILE=/app/orderqueue/src/app.py
+    volumes:
+      - ./utils:/app/utils:z
+      - ./orderqueue/src:/app/orderqueue/src:Z
+
+  executor_1:
+    build:
+      context: ./
+      dockerfile: ./executor/Dockerfile
+    environment:
+      - PYTHONUNBUFFERED=TRUE
+      - PYTHONFILE=/app/executor/src/app.py
+      - EXECUTOR_ID=executor-1
+      - ORDER_QUEUE_TARGET=orderqueue:50054
+    volumes:
+      - ./utils:/app/utils:z
+      - ./executor/src:/app/executor/src:Z
+    depends_on:
+      - orderqueue
+
+  executor_2:
+    build:
+      context: ./
+      dockerfile: ./executor/Dockerfile
+    environment:
+      - PYTHONUNBUFFERED=TRUE
+      - PYTHONFILE=/app/executor/src/app.py
+      - EXECUTOR_ID=executor-2
+      - ORDER_QUEUE_TARGET=orderqueue:50054
+    volumes:
+      - ./utils:/app/utils:z
+      - ./executor/src:/app/executor/src:Z
+    depends_on:
+      - orderqueue

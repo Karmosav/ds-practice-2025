@@ -1,23 +1,105 @@
-class ExecutorService:
-    def __init__(self, executor_id, known_ids, queue_stub):
+import sys
+import os
+import time
+import threading
+import grpc
+from concurrent import futures
+
+FILE = __file__ if '__file__' in globals() else os.getenv("PYTHONFILE", "")
+
+orderqueue_grpc_path = os.path.abspath(os.path.join(FILE, '../../../utils/pb/orderqueue'))
+sys.path.insert(0, orderqueue_grpc_path)
+import orderqueue_pb2 as orderqueue
+import orderqueue_pb2_grpc as orderqueue_grpc
+
+executor_grpc_path = os.path.abspath(os.path.join(FILE, '../../../utils/pb/executor'))
+sys.path.insert(0, executor_grpc_path)
+import executor_pb2 as executor
+import executor_pb2_grpc as executor_grpc
+
+HEARTBEAT_INTERVAL_SECONDS = 1.0
+LEADER_POLL_INTERVAL_SECONDS = 0.5
+EMPTY_QUEUE_BACKOFF_SECONDS = 1.0
+RETRY_BACKOFF_SECONDS = 2.0
+
+
+class ExecutorService(executor_grpc.OrderExecutorServiceServicer):
+    def __init__(self, executor_id, queue_stub):
         self.executor_id = executor_id
-        self.known_ids = known_ids  # IDs of other executors
         self.queue_stub = queue_stub
-        self.leader_id = None
+        self.leader_id = ""
+        self.is_leader = False
+        self.processed_orders = 0
+        self._state_lock = threading.Lock()
 
     def start_leader_election(self):
-        # TODO: pick a leader using your chosen algorithm
-        pass
+        self.queue_stub.RegisterExecutor(
+            orderqueue.RegisterExecutorRequest(executor_id=self.executor_id)
+        )
+
+    def GetStatus(self, request, context):
+        with self._state_lock:
+            return executor.GetStatusResponse(
+                executor_id=self.executor_id,
+                is_leader=self.is_leader,
+                leader_id=self.leader_id,
+                processed_orders=self.processed_orders,
+            )
+
+    def _set_leadership(self, response):
+        with self._state_lock:
+            self.leader_id = response.leader_id
+            self.is_leader = response.granted
+
+    def _increment_processed(self):
+        with self._state_lock:
+            self.processed_orders += 1
 
     def run(self):
-        # TODO: if I'm the leader, repeatedly dequeue and "execute" orders
-        # else, wait or watch for changes in leadership
-        pass
+        while True:
+            try:
+                heartbeat = self.queue_stub.Heartbeat(
+                    orderqueue.ExecutorHeartbeatRequest(executor_id=self.executor_id)
+                )
+                self._set_leadership(heartbeat)
+
+                if heartbeat.granted:
+                    dequeue = self.queue_stub.Dequeue(
+                        orderqueue.DequeueRequest(executor_id=self.executor_id)
+                    )
+                    if dequeue.has_order:
+                        print(f"[EX:{self.executor_id}] Order {dequeue.order.order_id} is being executed...")
+                        self._increment_processed()
+                    else:
+                        time.sleep(EMPTY_QUEUE_BACKOFF_SECONDS)
+                else:
+                    time.sleep(LEADER_POLL_INTERVAL_SECONDS)
+
+                time.sleep(HEARTBEAT_INTERVAL_SECONDS)
+            except grpc.RpcError as rpc_error:
+                print(f"[EX:{self.executor_id}] Queue RPC error: {rpc_error}")
+                time.sleep(RETRY_BACKOFF_SECONDS)
 
 
-def launch_executor(executor_id, known_ids):
-    # TODO: set up gRPC, connect to order queue
-    # queue_stub = ...
-    svc = ExecutorService(executor_id, known_ids, queue_stub=None)  # placeholder
-    svc.start_leader_election()
-    svc.run()
+def launch_executor(executor_id):
+    queue_target = os.getenv("ORDER_QUEUE_TARGET", "orderqueue:50054")
+    with grpc.insecure_channel(queue_target) as queue_channel:
+        queue_stub = orderqueue_grpc.OrderQueueServiceStub(queue_channel)
+
+        svc = ExecutorService(executor_id=executor_id, queue_stub=queue_stub)
+        svc.start_leader_election()
+
+        worker = threading.Thread(target=svc.run, daemon=True)
+        worker.start()
+
+        server = grpc.server(futures.ThreadPoolExecutor(max_workers=4))
+        executor_grpc.add_OrderExecutorServiceServicer_to_server(svc, server)
+        server.add_insecure_port("[::]:50055")
+        server.start()
+        print(f"Order executor {executor_id} listening on 50055")
+        server.wait_for_termination()
+
+
+if __name__ == "__main__":
+    executor_id = os.getenv("EXECUTOR_ID", os.getenv("HOSTNAME", "executor"))
+    launch_executor(executor_id)

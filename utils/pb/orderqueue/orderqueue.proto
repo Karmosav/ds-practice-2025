@@ -1,0 +1,55 @@
+syntax = "proto3";
+
+package orderqueue;
+
+service OrderQueueService {
+    rpc Enqueue (EnqueueRequest) returns (EnqueueResponse);
+    rpc Dequeue (DequeueRequest) returns (DequeueResponse);
+
+    // Executor replicas join election and keep leadership with heartbeats.
+    rpc RegisterExecutor (RegisterExecutorRequest) returns (LeaderResponse);
+    rpc Heartbeat (ExecutorHeartbeatRequest) returns (LeaderResponse);
+    rpc GetLeader (GetLeaderRequest) returns (LeaderResponse);
+}
+
+message OrderEnvelope {
+    string order_id = 1;
+    string order_payload_json = 2;
+}
+
+message EnqueueRequest {
+    OrderEnvelope order = 1;
+}
+
+message EnqueueResponse {
+    bool enqueued = 1;
+    string message = 2;
+    int32 queue_size = 3;
+}
+
+message DequeueRequest {
+    string executor_id = 1;
+}
+
+message DequeueResponse {
+    bool has_order = 1;
+    OrderEnvelope order = 2;
+    string message = 3;
+}
+
+message RegisterExecutorRequest {
+    string executor_id = 1;
+}
+
+message ExecutorHeartbeatRequest {
+    string executor_id = 1;
+}
+
+message GetLeaderRequest {}
+
+message LeaderResponse {
+    bool granted = 1;
+    string leader_id = 2;
+    int64 lease_expires_unix_ms = 3;
+    string message = 4;
+}

@@ -25,6 +25,11 @@ sys.path.insert(0, suggestions_grpc_path)
 import suggestions_pb2 as suggestions
 import suggestions_pb2_grpc as suggestions_grpc
 
+orderqueue_grpc_path = os.path.abspath(os.path.join(FILE, '../../../utils/pb/orderqueue'))
+sys.path.insert(0, orderqueue_grpc_path)
+import orderqueue_pb2 as orderqueue
+import orderqueue_pb2_grpc as orderqueue_grpc
+
 # Global in-memory cache to track order states and vector clocks for simplicity
 def initialize_order(order_id, order_data, service_name):
     payload = json.dumps(order_data)
@@ -152,6 +157,31 @@ def checkout():
                 transaction_verification.StartCheckoutFlowRequest(order_id=order_id)
             )
 
+        enqueue_result = {
+            "attempted": bool(final_resp.success),
+            "enqueued": False,
+            "message": "Order not approved, enqueue skipped",
+            "queueSize": 0,
+        }
+
+        if final_resp.success:
+            with grpc.insecure_channel("orderqueue:50054") as channel:
+                queue_stub = orderqueue_grpc.OrderQueueServiceStub(channel)
+                enqueue_response = queue_stub.Enqueue(
+                    orderqueue.EnqueueRequest(
+                        order=orderqueue.OrderEnvelope(
+                            order_id=order_id,
+                            order_payload_json=json.dumps(request_data),
+                        )
+                    )
+                )
+                enqueue_result = {
+                    "attempted": True,
+                    "enqueued": bool(enqueue_response.enqueued),
+                    "message": enqueue_response.message,
+                    "queueSize": enqueue_response.queue_size,
+                }
+
         final_vector_clock = list(final_resp.vector_clock)
         cleanup_results = []
         with ThreadPoolExecutor(max_workers=3) as executor:
@@ -181,6 +211,7 @@ def checkout():
             "success": final_resp.success,
             "status": final_resp.message,
             "finalVectorClock": final_vector_clock,
+            "enqueue": enqueue_result,
             "suggestedBooks": [
                 {"title": s.title, "author": s.author}
                 for s in final_resp.suggestions

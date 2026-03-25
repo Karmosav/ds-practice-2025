@@ -1,0 +1,16 @@
+syntax = "proto3";
+
+package executor;
+
+service OrderExecutorService {
+    rpc GetStatus (GetStatusRequest) returns (GetStatusResponse);
+}
+
+message GetStatusRequest {}
+
+message GetStatusResponse {
+    string executor_id = 1;
+    bool is_leader = 2;
+    string leader_id = 3;
+    int64 processed_orders = 4;
+}
