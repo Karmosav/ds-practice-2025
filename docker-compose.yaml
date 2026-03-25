@@ -117,32 +117,21 @@ services:
       - ./utils:/app/utils:z
       - ./orderqueue/src:/app/orderqueue/src:Z
 
-  executor_1:
+  executor:
     build:
       context: ./
       dockerfile: ./executor/Dockerfile
     environment:
       - PYTHONUNBUFFERED=TRUE
       - PYTHONFILE=/app/executor/src/app.py
-      - EXECUTOR_ID=executor-1
+      - EXECUTOR_ID=executor
       - ORDER_QUEUE_TARGET=orderqueue:50054
     volumes:
       - ./utils:/app/utils:z
       - ./executor/src:/app/executor/src:Z
     depends_on:
       - orderqueue
-
-  executor_2:
-    build:
-      context: ./
-      dockerfile: ./executor/Dockerfile
-    environment:
-      - PYTHONUNBUFFERED=TRUE
-      - PYTHONFILE=/app/executor/src/app.py
-      - EXECUTOR_ID=executor-2
-      - ORDER_QUEUE_TARGET=orderqueue:50054
-    volumes:
-      - ./utils:/app/utils:z
-      - ./executor/src:/app/executor/src:Z
-    depends_on:
-      - orderqueue
+    # Note: for plain `docker compose up`, use `--scale executor=2`.
+    # The block below is only honored by Docker Swarm (`docker stack deploy`).
+    deploy:
+      replicas: 4

@@ -25,7 +25,7 @@ The checkpoint evaluations will be done using the code that is started with Dock
 If, for some reason, changes to the code are not reflected, try to force rebuilding the Docker images with the following command:
 
 ```bash
-docker compose up --build
+docker compose up --build --scale executor=2
 ```
 
 ### Run the code locally
