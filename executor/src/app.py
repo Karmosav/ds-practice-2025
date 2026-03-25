@@ -31,12 +31,16 @@ class ExecutorService(executor_grpc.OrderExecutorServiceServicer):
         self.is_leader = False
         self.processed_orders = 0
         self._state_lock = threading.Lock()
-
+    
+    # Initiates the leader election process by registering with the order queue. 
+    # This will allow the executor to be considered for leadership and start sending heartbeats.
     def start_leader_election(self):
         self.queue_stub.RegisterExecutor(
             orderqueue.RegisterExecutorRequest(executor_id=self.executor_id)
         )
-
+    
+    # This method handles status requests from clients, providing information about the executor's identity, 
+    # leadership status, current leader, and number of processed orders.
     def GetStatus(self, request, context):
         with self._state_lock:
             return executor.GetStatusResponse(
@@ -46,23 +50,33 @@ class ExecutorService(executor_grpc.OrderExecutorServiceServicer):
                 processed_orders=self.processed_orders,
             )
 
+    # This method updates the executor's leadership status based on the response from the order queue's heartbeat. 
+    # It ensures that the executor's internal state is consistent with the order queue's view of leadership.
     def _set_leadership(self, response):
         with self._state_lock:
             self.leader_id = response.leader_id
             self.is_leader = response.granted
 
+    # This method increments the count of processed orders in a thread-safe manner. 
+    # It is called whenever the executor successfully dequeues an order for execution.
     def _increment_processed(self):
         with self._state_lock:
             self.processed_orders += 1
 
+    # This is the main loop of the executor service. It continuously sends heartbeats to the order queue 
+    # to maintain leadership status, and attempts to dequeue orders for execution if it is the leader. 
+    # It also handles backoff and retry logic in case of errors or if the queue is empty.
     def run(self):
         while True:
             try:
+                # Send a heartbeat to the order queue and update leadership status based on the response.
                 heartbeat = self.queue_stub.Heartbeat(
                     orderqueue.ExecutorHeartbeatRequest(executor_id=self.executor_id)
                 )
                 self._set_leadership(heartbeat)
 
+                # If this executor is the leader, attempt to dequeue an order for execution. 
+                # If the queue is empty or if this executor is not the leader, wait before retrying.
                 if heartbeat.granted:
                     dequeue = self.queue_stub.Dequeue(
                         orderqueue.DequeueRequest(executor_id=self.executor_id)
@@ -79,8 +93,8 @@ class ExecutorService(executor_grpc.OrderExecutorServiceServicer):
             except grpc.RpcError as rpc_error:
                 print(f"[EX:{self.executor_id}] Queue RPC error: {rpc_error}")
                 time.sleep(RETRY_BACKOFF_SECONDS)
-
-
+                
+# start the executor service and connect it to the order queue
 def launch_executor(executor_id):
     queue_target = os.getenv("ORDER_QUEUE_TARGET", "orderqueue:50054")
     with grpc.insecure_channel(queue_target) as queue_channel:

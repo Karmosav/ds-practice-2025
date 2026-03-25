@@ -124,7 +124,6 @@ services:
     environment:
       - PYTHONUNBUFFERED=TRUE
       - PYTHONFILE=/app/executor/src/app.py
-      - EXECUTOR_ID=executor
       - ORDER_QUEUE_TARGET=orderqueue:50054
     volumes:
       - ./utils:/app/utils:z

@@ -141,11 +141,11 @@ def checkout():
         # Generate a unique order ID for this checkout flow and initialize all services in parallel
         order_id = str(uuid.uuid4())
 
-        with ThreadPoolExecutor(max_workers=3) as executor:
+        with ThreadPoolExecutor(max_workers=3) as thread_executor:
             futures = [
-                executor.submit(initialize_order, order_id, request_data, "transaction_verification"),
-                executor.submit(initialize_order, order_id, request_data, "fraud_detection"),
-                executor.submit(initialize_order, order_id, request_data, "suggestions"),
+                thread_executor.submit(initialize_order, order_id, request_data, "transaction_verification"),
+                thread_executor.submit(initialize_order, order_id, request_data, "fraud_detection"),
+                thread_executor.submit(initialize_order, order_id, request_data, "suggestions"),
             ]
             if not all(f.result() for f in futures):
                 return {"error": "Failed to initialize all services"}, 500
@@ -157,6 +157,9 @@ def checkout():
                 transaction_verification.StartCheckoutFlowRequest(order_id=order_id)
             )
 
+        # Based on the final response, if the order is approved, 
+        # enqueue it for execution and return the appropriate response to the client.
+        # Default behavior is to not enqueue if the order is not approved
         enqueue_result = {
             "attempted": bool(final_resp.success),
             "enqueued": False,
@@ -164,8 +167,10 @@ def checkout():
             "queueSize": 0,
         }
 
+        # Enqueue the order for execution if it is approved
         if final_resp.success:
             with grpc.insecure_channel("orderqueue:50054") as channel:
+                # Enqueue the order for execution by the order executor service
                 queue_stub = orderqueue_grpc.OrderQueueServiceStub(channel)
                 enqueue_response = queue_stub.Enqueue(
                     orderqueue.EnqueueRequest(
@@ -175,6 +180,7 @@ def checkout():
                         )
                     )
                 )
+                # successfully enqueued if the order was added to the queue
                 enqueue_result = {
                     "attempted": True,
                     "enqueued": bool(enqueue_response.enqueued),
@@ -184,10 +190,10 @@ def checkout():
 
         final_vector_clock = list(final_resp.vector_clock)
         cleanup_results = []
-        with ThreadPoolExecutor(max_workers=3) as executor:
+        with ThreadPoolExecutor(max_workers=3) as thread_executor:
             cleanup_services = ["transaction_verification", "fraud_detection", "suggestions"]
             cleanup_futures = {
-                executor.submit(cleanup_order, order_id, final_vector_clock, service_name): service_name
+                thread_executor.submit(cleanup_order, order_id, final_vector_clock, service_name): service_name
                 for service_name in cleanup_services
             }
             for cleanup_future, service_name in cleanup_futures.items():
