@@ -16,3 +16,7 @@ pip install grpcio==1.70.0 grpcio-tools==1.70.0 protobuf==5.29.6 watchdog==6.0.0
 
 <img width="1527" height="347" alt="image" src="https://github.com/user-attachments/assets/8de78f86-4f65-4843-a721-fcdd4b3c092c" />
 
+
+## Vector clock diagram
+
+![alt text](image.png)
