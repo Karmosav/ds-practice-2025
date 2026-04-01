@@ -20,3 +20,7 @@ pip install grpcio==1.70.0 grpcio-tools==1.70.0 protobuf==5.29.6 watchdog==6.0.0
 ## Vector clock diagram
 
 ![alt text](image.png)
+
+## Leader election diagram
+
+![alt text](<Send heartbeat.png>)
