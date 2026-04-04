@@ -24,3 +24,7 @@ pip install grpcio==1.70.0 grpcio-tools==1.70.0 protobuf==5.29.6 watchdog==6.0.0
 ## Leader election diagram
 
 ![alt text](<Send heartbeat.png>)
+
+## System Model
+
+System Model Description can be found [here](docs\system_model.md)
