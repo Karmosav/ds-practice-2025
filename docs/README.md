@@ -27,4 +27,4 @@ pip install grpcio==1.70.0 grpcio-tools==1.70.0 protobuf==5.29.6 watchdog==6.0.0
 
 ## System Model
 
-System Model Description can be found [here](docs\system_model.md)
+System Model Description can be found [here](system_model.md)
