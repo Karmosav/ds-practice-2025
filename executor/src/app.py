@@ -69,7 +69,7 @@ class ExecutorService(executor_grpc.OrderExecutorServiceServicer):
     def run(self):
         while True:
             try:
-                # Send a heartbeat to the order queue and update leadership status based on the response.
+                # Send a heartbeat to the order queue and update leadership status based on the response. 
                 heartbeat = self.queue_stub.Heartbeat(
                     orderqueue.ExecutorHeartbeatRequest(executor_id=self.executor_id)
                 )
