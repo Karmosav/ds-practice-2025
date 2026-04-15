@@ -1,0 +1,24 @@
+syntax = "proto3";
+
+package booksdatabase;
+service BooksDatabase {
+    rpc Read (ReadRequest) returns (ReadResponse);
+    rpc Write (WriteRequest) returns (WriteResponse);
+}
+
+message ReadRequest {
+    string title = 1;
+}
+
+message ReadResponse {
+    int32 stock = 1;
+}
+
+message WriteRequest {
+    string title = 1;
+    int32 new_stock = 2;
+}
+
+message WriteResponse {
+    bool success = 1;
+}
