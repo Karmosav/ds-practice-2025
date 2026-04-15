@@ -44,21 +44,6 @@ class OrderQueueServiceStub(object):
                 request_serializer=orderqueue__pb2.DequeueRequest.SerializeToString,
                 response_deserializer=orderqueue__pb2.DequeueResponse.FromString,
                 _registered_method=True)
-        self.RegisterExecutor = channel.unary_unary(
-                '/orderqueue.OrderQueueService/RegisterExecutor',
-                request_serializer=orderqueue__pb2.RegisterExecutorRequest.SerializeToString,
-                response_deserializer=orderqueue__pb2.LeaderResponse.FromString,
-                _registered_method=True)
-        self.Heartbeat = channel.unary_unary(
-                '/orderqueue.OrderQueueService/Heartbeat',
-                request_serializer=orderqueue__pb2.ExecutorHeartbeatRequest.SerializeToString,
-                response_deserializer=orderqueue__pb2.LeaderResponse.FromString,
-                _registered_method=True)
-        self.GetLeader = channel.unary_unary(
-                '/orderqueue.OrderQueueService/GetLeader',
-                request_serializer=orderqueue__pb2.GetLeaderRequest.SerializeToString,
-                response_deserializer=orderqueue__pb2.LeaderResponse.FromString,
-                _registered_method=True)
 
 
 class OrderQueueServiceServicer(object):
@@ -76,25 +61,6 @@ class OrderQueueServiceServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
-    def RegisterExecutor(self, request, context):
-        """Executor replicas join election and keep leadership with heartbeats.
-        """
-        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details('Method not implemented!')
-        raise NotImplementedError('Method not implemented!')
-
-    def Heartbeat(self, request, context):
-        """Missing associated documentation comment in .proto file."""
-        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details('Method not implemented!')
-        raise NotImplementedError('Method not implemented!')
-
-    def GetLeader(self, request, context):
-        """Missing associated documentation comment in .proto file."""
-        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details('Method not implemented!')
-        raise NotImplementedError('Method not implemented!')
-
 
 def add_OrderQueueServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -107,21 +73,6 @@ def add_OrderQueueServiceServicer_to_server(servicer, server):
                     servicer.Dequeue,
                     request_deserializer=orderqueue__pb2.DequeueRequest.FromString,
                     response_serializer=orderqueue__pb2.DequeueResponse.SerializeToString,
-            ),
-            'RegisterExecutor': grpc.unary_unary_rpc_method_handler(
-                    servicer.RegisterExecutor,
-                    request_deserializer=orderqueue__pb2.RegisterExecutorRequest.FromString,
-                    response_serializer=orderqueue__pb2.LeaderResponse.SerializeToString,
-            ),
-            'Heartbeat': grpc.unary_unary_rpc_method_handler(
-                    servicer.Heartbeat,
-                    request_deserializer=orderqueue__pb2.ExecutorHeartbeatRequest.FromString,
-                    response_serializer=orderqueue__pb2.LeaderResponse.SerializeToString,
-            ),
-            'GetLeader': grpc.unary_unary_rpc_method_handler(
-                    servicer.GetLeader,
-                    request_deserializer=orderqueue__pb2.GetLeaderRequest.FromString,
-                    response_serializer=orderqueue__pb2.LeaderResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -178,87 +129,6 @@ class OrderQueueService(object):
             '/orderqueue.OrderQueueService/Dequeue',
             orderqueue__pb2.DequeueRequest.SerializeToString,
             orderqueue__pb2.DequeueResponse.FromString,
-            options,
-            channel_credentials,
-            insecure,
-            call_credentials,
-            compression,
-            wait_for_ready,
-            timeout,
-            metadata,
-            _registered_method=True)
-
-    @staticmethod
-    def RegisterExecutor(request,
-            target,
-            options=(),
-            channel_credentials=None,
-            call_credentials=None,
-            insecure=False,
-            compression=None,
-            wait_for_ready=None,
-            timeout=None,
-            metadata=None):
-        return grpc.experimental.unary_unary(
-            request,
-            target,
-            '/orderqueue.OrderQueueService/RegisterExecutor',
-            orderqueue__pb2.RegisterExecutorRequest.SerializeToString,
-            orderqueue__pb2.LeaderResponse.FromString,
-            options,
-            channel_credentials,
-            insecure,
-            call_credentials,
-            compression,
-            wait_for_ready,
-            timeout,
-            metadata,
-            _registered_method=True)
-
-    @staticmethod
-    def Heartbeat(request,
-            target,
-            options=(),
-            channel_credentials=None,
-            call_credentials=None,
-            insecure=False,
-            compression=None,
-            wait_for_ready=None,
-            timeout=None,
-            metadata=None):
-        return grpc.experimental.unary_unary(
-            request,
-            target,
-            '/orderqueue.OrderQueueService/Heartbeat',
-            orderqueue__pb2.ExecutorHeartbeatRequest.SerializeToString,
-            orderqueue__pb2.LeaderResponse.FromString,
-            options,
-            channel_credentials,
-            insecure,
-            call_credentials,
-            compression,
-            wait_for_ready,
-            timeout,
-            metadata,
-            _registered_method=True)
-
-    @staticmethod
-    def GetLeader(request,
-            target,
-            options=(),
-            channel_credentials=None,
-            call_credentials=None,
-            insecure=False,
-            compression=None,
-            wait_for_ready=None,
-            timeout=None,
-            metadata=None):
-        return grpc.experimental.unary_unary(
-            request,
-            target,
-            '/orderqueue.OrderQueueService/GetLeader',
-            orderqueue__pb2.GetLeaderRequest.SerializeToString,
-            orderqueue__pb2.LeaderResponse.FromString,
             options,
             channel_credentials,
             insecure,

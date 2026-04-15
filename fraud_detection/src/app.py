@@ -24,6 +24,11 @@ sys.path.insert(0, transaction_verification_grpc_path)
 import transaction_verification_pb2 as transaction_verification
 import transaction_verification_pb2_grpc as transaction_verification_grpc
 
+orchestrator_grpc_path = os.path.abspath(os.path.join(FILE, '../../../utils/pb/orchestrator'))
+sys.path.insert(0, orchestrator_grpc_path)
+import orchestrator_pb2 as orchestrator
+import orchestrator_pb2_grpc as orchestrator_grpc
+
 
 MY_IDX = 1
 ORDER_CACHE = {}
@@ -282,6 +287,23 @@ class FraudDetectionService(fraud_detection_grpc.FraudDetectionServiceServicer):
             state = ORDER_CACHE.get(order_id)
         if state is None:
             return
+        # Always try to notify orchestrator directly about the failure.
+        try:
+            with grpc.insecure_channel("orchestrator:50060") as channel:
+                stub = orchestrator_grpc.OrchestratorServiceStub(channel)
+                stub.ReportFailure(
+                    orchestrator.FailureReportRequest(
+                        order_id=order_id,
+                        service_name="fraud_detection",
+                        message=message,
+                        vector_clock=state.local_vc,
+                    )
+                )
+        except Exception as e:
+            print(f"[FD] failed to report failure to orchestrator: {e}")
+
+        # Keep existing path to transaction verification so the current
+        # checkout flow semantics remain unchanged.
         try:
             with grpc.insecure_channel("transaction_verification:50052") as channel:
                 stub = transaction_verification_grpc.TransactionVerificationServiceStub(channel)
@@ -291,11 +313,11 @@ class FraudDetectionService(fraud_detection_grpc.FraudDetectionServiceServicer):
                         success=False,
                         message=message,
                         vector_clock=state.local_vc,
-                        suggestions=[]
+                        suggestions=[],
                     )
                 )
         except Exception as e:
-            print(f"[FD] failed to send failure: {e}")
+            print(f"[FD] failed to send failure to transaction_verification: {e}")
 
 
 def serve():

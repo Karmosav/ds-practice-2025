@@ -3,6 +3,7 @@ import os
 import grpc
 import json
 import logging
+import threading
 from flask import Flask, request
 from flask_cors import CORS
 from concurrent.futures import ThreadPoolExecutor
@@ -29,6 +30,53 @@ orderqueue_grpc_path = os.path.abspath(os.path.join(FILE, '../../../utils/pb/ord
 sys.path.insert(0, orderqueue_grpc_path)
 import orderqueue_pb2 as orderqueue
 import orderqueue_pb2_grpc as orderqueue_grpc
+
+orchestrator_grpc_path = os.path.abspath(os.path.join(FILE, '../../../utils/pb/orchestrator'))
+sys.path.insert(0, orchestrator_grpc_path)
+import orchestrator_pb2 as orchestrator
+import orchestrator_pb2_grpc as orchestrator_grpc
+
+
+_ORDER_FAILURES = {}
+_ORDER_FAILURES_LOCK = threading.Lock()
+
+
+class OrchestratorFailureService(orchestrator_grpc.OrchestratorServiceServicer):
+    def ReportFailure(self, request, context):
+        order_id = request.order_id
+        service_name = request.service_name or "unknown"
+        message = request.message or ""
+        vector_clock = list(request.vector_clock)
+
+        logging.error(
+            "[ORCH][gRPC] Failure reported order=%s service=%s msg=%s vc=%s",
+            order_id,
+            service_name,
+            message,
+            vector_clock,
+        )
+
+        with _ORDER_FAILURES_LOCK:
+            _ORDER_FAILURES.setdefault(order_id, []).append(
+                {
+                    "service": service_name,
+                    "message": message,
+                    "vectorClock": vector_clock,
+                }
+            )
+
+        return orchestrator.Ack(ok=True)
+
+
+def _start_failure_grpc_server():
+    server = grpc.server(ThreadPoolExecutor(max_workers=10))
+    orchestrator_grpc.add_OrchestratorServiceServicer_to_server(
+        OrchestratorFailureService(), server
+    )
+    server.add_insecure_port("[::]:50060")
+    server.start()
+    logging.info("Orchestrator gRPC failure listener running on 50060")
+    return server
 
 # Global in-memory cache to track order states and vector clocks for simplicity
 def initialize_order(order_id, order_data, service_name):
@@ -234,4 +282,6 @@ def checkout():
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
+    _start_failure_grpc_server()
     app.run(host="0.0.0.0", port=5000)
