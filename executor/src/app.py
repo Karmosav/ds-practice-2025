@@ -62,7 +62,7 @@ class ExecutorService(executor_grpc.OrderExecutorServiceServicer):
     def _increment_processed(self):
         with self._state_lock:
             self.processed_orders += 1
-
+    
     # This is the main loop of the executor service. It continuously sends heartbeats to the order queue 
     # to maintain leadership status, and attempts to dequeue orders for execution if it is the leader. 
     # It also handles backoff and retry logic in case of errors or if the queue is empty.

@@ -134,3 +134,42 @@ services:
     # The block below is only honored by Docker Swarm (`docker stack deploy`).
     deploy:
       replicas: 4
+  booksdb-primary:
+    build:
+      context: ./
+      dockerfile: ./books_database/Dockerfile
+    environment:
+      - PYTHONUNBUFFERED=TRUE
+      - PYTHONFILE=/app/books_database/src/app.py
+      - BOOKSDB_BACKUPS=booksdb-backup1:50051,booksdb-backup2:50051
+    ports:
+      - 55051:50051  # Changed host port to 55051 to avoid conflict
+    volumes:
+      - ./utils:/app/utils:z
+      - ./books_database/src:/app/books_database/src:Z
+
+  booksdb-backup1:
+    build:
+      context: ./
+      dockerfile: ./books_database/Dockerfile
+    environment:
+      - PYTHONUNBUFFERED=TRUE
+      - PYTHONFILE=/app/books_database/src/app.py
+      - BOOKSDB_BACKUPS=
+    # No host port mapping for backup
+    volumes:
+      - ./utils:/app/utils:z
+      - ./books_database/src:/app/books_database/src:Z
+
+  booksdb-backup2:
+    build:
+      context: ./
+      dockerfile: ./books_database/Dockerfile
+    environment:
+      - PYTHONUNBUFFERED=TRUE
+      - PYTHONFILE=/app/books_database/src/app.py
+      - BOOKSDB_BACKUPS=
+    # No host port mapping for backup
+    volumes:
+      - ./utils:/app/utils:z
+      - ./books_database/src:/app/books_database/src:Z

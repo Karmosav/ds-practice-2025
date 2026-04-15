@@ -1,5 +1,6 @@
 import sys
 import os
+import json
 import time
 import threading
 import grpc
@@ -11,6 +12,11 @@ orderqueue_grpc_path = os.path.abspath(os.path.join(FILE, '../../../utils/pb/ord
 sys.path.insert(0, orderqueue_grpc_path)
 import orderqueue_pb2 as orderqueue
 import orderqueue_pb2_grpc as orderqueue_grpc
+
+books_database_grpc_path = os.path.abspath(os.path.join(FILE, '../../../utils/pb/books_database'))
+sys.path.insert(0, books_database_grpc_path)
+import booksdatabase_pb2 as books_pb2
+import booksdatabase_pb2_grpc as booksdatabase_grpc
 
 LEADER_LEASE_SECONDS = 5
 
@@ -124,16 +130,126 @@ class OrderQueueService(orderqueue_grpc.OrderQueueServiceServicer):
                     has_order=False,
                     message="queue is empty",
                 )
-
+            # pop the next order
             next_order = self._queue.pop(0)
 
-        print(f"[Q] Dequeued order={next_order.order_id} by leader={request.executor_id}")
+            # Connect to the primary books database service
+            db_channel = grpc.insecure_channel('booksdb-primary:50051')  # Use the correct service name/port
+            db_stub = booksdatabase_grpc.BooksDatabaseStub(db_channel)
+
+            # Execute the order (read, check, write) — logic lives in execute_order
+            print(
+                f"[Q] inventory workflow start order_id={next_order.order_id} "
+                f"leader_executor={request.executor_id}"
+            )
+            success = self.execute_order(next_order.order_payload_json, db_stub)
+            if not success:
+                print(f"[Q] inventory workflow FAILED order_id={next_order.order_id}")
+                return orderqueue.DequeueResponse(
+                    has_order=False,
+                    message="order could not be fulfilled against inventory",
+                )
+
+        print(
+            f"[Q] Dequeued order={next_order.order_id} by leader={request.executor_id} "
+            f"(inventory updated)"
+        )
         return orderqueue.DequeueResponse(
             has_order=True,
             order=next_order,
             message="order dequeued",
         )
+    
+    def execute_order(self, order_payload_json, db_stub):
+        """Read line items from checkout JSON, read stock, validate, write new stock (primary + replication)."""
+        try:
+            payload = json.loads(order_payload_json or "{}")
+        except json.JSONDecodeError as err:
+            print(f"[Q] execute_order: invalid JSON ({err})")
+            return False
 
+        def split_book_title(display_name):
+            display_name = (display_name or "").strip()
+            if not display_name:
+                return ""
+            if " by " in display_name:
+                return display_name.split(" by ", 1)[0].strip()
+            return display_name
+
+        def positive_int(q):
+            if q is None or isinstance(q, bool):
+                return None
+            if isinstance(q, int):
+                return q if q > 0 else None
+            if isinstance(q, float) and q > 0 and q.is_integer():
+                return int(q)
+            if isinstance(q, str):
+                try:
+                    v = int(q.strip(), 10)
+                    return v if v > 0 else None
+                except ValueError:
+                    return None
+            return None
+
+        lines = []
+        if isinstance(payload, dict):
+            t = str(payload.get("title") or "").strip()
+            q = positive_int(payload.get("quantity", 1))
+            if t and q:
+                lines = [(t, q)]
+            else:
+                for item in payload.get("items") or []:
+                    if not isinstance(item, dict):
+                        continue
+                    raw = item.get("name") or item.get("title") or ""
+                    t = split_book_title(str(raw))
+                    q = positive_int(item.get("quantity"))
+                    if t and q:
+                        lines.append((t, q))
+
+        if not lines:
+            print("[Q] execute_order: no valid line items (missing title/quantity or empty items)")
+            return False
+
+        print(f"[Q] execute_order: parsed {len(lines)} line(s): {lines}")
+
+        try:
+            snapshots = []
+            for title, qty in lines:
+                response = db_stub.Read(books_pb2.ReadRequest(title=title))
+                snapshots.append((title, qty, response.stock))
+                print(
+                    f"[Q] execute_order: Read ok title={title!r} requested_qty={qty} "
+                    f"current_stock={response.stock}"
+                )
+            for title, qty, stock in snapshots:
+                if stock < qty:
+                    print(
+                        f"[Q] execute_order: insufficient stock title={title!r} "
+                        f"stock={stock} required={qty}"
+                    )
+                    return False
+            print("[Q] execute_order: stock check passed for all lines")
+            for title, qty, stock in snapshots:
+                new_stock = stock - qty
+                write_response = db_stub.Write(
+                    books_pb2.WriteRequest(title=title, new_stock=new_stock)
+                )
+                print(
+                    f"[Q] execute_order: Write title={title!r} stock {stock} -> {new_stock} "
+                    f"success={write_response.success}"
+                )
+                if not write_response.success:
+                    return False
+        except grpc.RpcError as err:
+            print(
+                f"[Q] execute_order: books DB gRPC error code={err.code()} "
+                f"details={err.details()!r}"
+            )
+            return False
+
+        print("[Q] execute_order: all reads/writes completed successfully")
+        return True
     # Executors must register and send heartbeats to be considered for leadership. 
     # This method handles both registration and heartbeat updates.
     def RegisterExecutor(self, request, context):

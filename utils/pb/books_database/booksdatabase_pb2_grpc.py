@@ -48,20 +48,67 @@ class BooksDatabaseStub(object):
 
 class BooksDatabaseServicer(object):
     """Missing associated documentation comment in .proto file."""
+    def __init__(self):
+        self.store = {}
+
+    def _replica_label(self):
+        backups = getattr(self, "backups", None)
+        if backups is None:
+            return "BooksDB"
+        return "BooksDB-primary" if backups else "BooksDB-backup"
 
     def Read(self, request, context):
-        """Missing associated documentation comment in .proto file."""
-        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details('Method not implemented!')
-        raise NotImplementedError('Method not implemented!')
+        title = request.title
+        known = title in self.store
+        stock = self.store.get(title, 0)
+        print(
+            f"[{self._replica_label()}] Read title={title!r} -> stock={stock} "
+            f"(known_key={known}, store_size={len(self.store)})"
+        )
+        if not known:
+            print(
+                f"[{self._replica_label()}] Read: title not in store — returning default stock=0 "
+                f"(fulfillment will fail unless quantity is 0)"
+            )
+        return utils_dot_pb_dot_books__database_dot_booksdatabase__pb2.ReadResponse(stock=stock)
 
     def Write(self, request, context):
-        """Missing associated documentation comment in .proto file."""
-        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details('Method not implemented!')
-        raise NotImplementedError('Method not implemented!')
+        title = request.title
+        new_stock = request.new_stock
+        self.store[title] = new_stock
+        print(
+            f"[{self._replica_label()}] Write title={title!r} new_stock={new_stock} "
+            f"(store_size={len(self.store)})"
+        )
+        return utils_dot_pb_dot_books__database_dot_booksdatabase__pb2.WriteResponse(success=True)
 
 
+class PrimaryReplica(BooksDatabaseServicer):
+    def __init__(self, backup_stubs):
+        super().__init__()
+        self.backups = backup_stubs  # List of gRPC stubs for backup replicas
+
+    def Write(self, request, context):
+        title = request.title
+        new_stock = request.new_stock
+        print(
+            f"[{self._replica_label()}] Write(local) title={title!r} new_stock={new_stock} "
+            f"replicating_to={len(self.backups)} backup(s)"
+        )
+        self.store[title] = new_stock
+
+        for i, backup in enumerate(self.backups):
+            try:
+                print(
+                    f"[BooksDB-primary] replicate Write -> backup[{i}] "
+                    f"title={title!r} new_stock={new_stock}"
+                )
+                backup.Write(request)
+                print(f"[BooksDB-primary] backup[{i}] Write acknowledged")
+            except Exception as e:
+                print(f"[BooksDB-primary] Failed to replicate to backup[{i}]: {e}")
+        return utils_dot_pb_dot_books__database_dot_booksdatabase__pb2.WriteResponse(success=True)
+    
 def add_BooksDatabaseServicer_to_server(servicer, server):
     rpc_method_handlers = {
             'Read': grpc.unary_unary_rpc_method_handler(
