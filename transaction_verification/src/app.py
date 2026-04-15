@@ -17,6 +17,11 @@ sys.path.insert(0, fraud_detection_grpc_path)
 import fraud_detection_pb2 as fraud_detection
 import fraud_detection_pb2_grpc as fraud_detection_grpc
 
+orchestrator_grpc_path = os.path.abspath(os.path.join(FILE, '../../../utils/pb/orchestrator'))
+sys.path.insert(0, orchestrator_grpc_path)
+import orchestrator_pb2 as orchestrator
+import orchestrator_pb2_grpc as orchestrator_grpc
+
 
 SERVICE_NAME = "transaction_verification"
 MY_IDX = 0
@@ -204,6 +209,23 @@ class TransactionVerificationService(transaction_verification_grpc.TransactionVe
             state.message = message
             print(f"[TV] FAIL order={order_id} msg={message} vc={state.local_vc}")
             state.cond.notify_all()
+
+        # Also report this failure directly to the orchestrator via gRPC
+        # so it has a first-class view of failures originating in the
+        # transaction_verification service.
+        try:
+            with grpc.insecure_channel("orchestrator:50060") as channel:
+                stub = orchestrator_grpc.OrchestratorServiceStub(channel)
+                stub.ReportFailure(
+                    orchestrator.FailureReportRequest(
+                        order_id=order_id,
+                        service_name=SERVICE_NAME,
+                        message=message,
+                        vector_clock=state.local_vc,
+                    )
+                )
+        except Exception as e:
+            print(f"[TV] additionally failed to report failure to orchestrator: {e}")
 
     # Event a: validates that the order has at least one item.
     # If successful, triggers event c; otherwise fails immediately.

@@ -24,7 +24,7 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x10orderqueue.proto\x12\norderqueue\"=\n\rOrderEnvelope\x12\x10\n\x08order_id\x18\x01 \x01(\t\x12\x1a\n\x12order_payload_json\x18\x02 \x01(\t\":\n\x0e\x45nqueueRequest\x12(\n\x05order\x18\x01 \x01(\x0b\x32\x19.orderqueue.OrderEnvelope\"H\n\x0f\x45nqueueResponse\x12\x10\n\x08\x65nqueued\x18\x01 \x01(\x08\x12\x0f\n\x07message\x18\x02 \x01(\t\x12\x12\n\nqueue_size\x18\x03 \x01(\x05\"%\n\x0e\x44\x65queueRequest\x12\x13\n\x0b\x65xecutor_id\x18\x01 \x01(\t\"_\n\x0f\x44\x65queueResponse\x12\x11\n\thas_order\x18\x01 \x01(\x08\x12(\n\x05order\x18\x02 \x01(\x0b\x32\x19.orderqueue.OrderEnvelope\x12\x0f\n\x07message\x18\x03 \x01(\t\".\n\x17RegisterExecutorRequest\x12\x13\n\x0b\x65xecutor_id\x18\x01 \x01(\t\"/\n\x18\x45xecutorHeartbeatRequest\x12\x13\n\x0b\x65xecutor_id\x18\x01 \x01(\t\"\x12\n\x10GetLeaderRequest\"d\n\x0eLeaderResponse\x12\x0f\n\x07granted\x18\x01 \x01(\x08\x12\x11\n\tleader_id\x18\x02 \x01(\t\x12\x1d\n\x15lease_expires_unix_ms\x18\x03 \x01(\x03\x12\x0f\n\x07message\x18\x04 \x01(\t2\x86\x03\n\x11OrderQueueService\x12\x42\n\x07\x45nqueue\x12\x1a.orderqueue.EnqueueRequest\x1a\x1b.orderqueue.EnqueueResponse\x12\x42\n\x07\x44\x65queue\x12\x1a.orderqueue.DequeueRequest\x1a\x1b.orderqueue.DequeueResponse\x12S\n\x10RegisterExecutor\x12#.orderqueue.RegisterExecutorRequest\x1a\x1a.orderqueue.LeaderResponse\x12M\n\tHeartbeat\x12$.orderqueue.ExecutorHeartbeatRequest\x1a\x1a.orderqueue.LeaderResponse\x12\x45\n\tGetLeader\x12\x1c.orderqueue.GetLeaderRequest\x1a\x1a.orderqueue.LeaderResponseb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x10orderqueue.proto\x12\norderqueue\"=\n\rOrderEnvelope\x12\x10\n\x08order_id\x18\x01 \x01(\t\x12\x1a\n\x12order_payload_json\x18\x02 \x01(\t\":\n\x0e\x45nqueueRequest\x12(\n\x05order\x18\x01 \x01(\x0b\x32\x19.orderqueue.OrderEnvelope\"H\n\x0f\x45nqueueResponse\x12\x10\n\x08\x65nqueued\x18\x01 \x01(\x08\x12\x0f\n\x07message\x18\x02 \x01(\t\x12\x12\n\nqueue_size\x18\x03 \x01(\x05\"%\n\x0e\x44\x65queueRequest\x12\x13\n\x0b\x65xecutor_id\x18\x01 \x01(\t\"_\n\x0f\x44\x65queueResponse\x12\x11\n\thas_order\x18\x01 \x01(\x08\x12(\n\x05order\x18\x02 \x01(\x0b\x32\x19.orderqueue.OrderEnvelope\x12\x0f\n\x07message\x18\x03 \x01(\t2\x9b\x01\n\x11OrderQueueService\x12\x42\n\x07\x45nqueue\x12\x1a.orderqueue.EnqueueRequest\x1a\x1b.orderqueue.EnqueueResponse\x12\x42\n\x07\x44\x65queue\x12\x1a.orderqueue.DequeueRequest\x1a\x1b.orderqueue.DequeueResponseb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -41,14 +41,6 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['_DEQUEUEREQUEST']._serialized_end=266
   _globals['_DEQUEUERESPONSE']._serialized_start=268
   _globals['_DEQUEUERESPONSE']._serialized_end=363
-  _globals['_REGISTEREXECUTORREQUEST']._serialized_start=365
-  _globals['_REGISTEREXECUTORREQUEST']._serialized_end=411
-  _globals['_EXECUTORHEARTBEATREQUEST']._serialized_start=413
-  _globals['_EXECUTORHEARTBEATREQUEST']._serialized_end=460
-  _globals['_GETLEADERREQUEST']._serialized_start=462
-  _globals['_GETLEADERREQUEST']._serialized_end=480
-  _globals['_LEADERRESPONSE']._serialized_start=482
-  _globals['_LEADERRESPONSE']._serialized_end=582
-  _globals['_ORDERQUEUESERVICE']._serialized_start=585
-  _globals['_ORDERQUEUESERVICE']._serialized_end=975
+  _globals['_ORDERQUEUESERVICE']._serialized_start=366
+  _globals['_ORDERQUEUESERVICE']._serialized_end=521
 # @@protoc_insertion_point(module_scope)

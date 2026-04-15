@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+package orchestrator;
+
+service OrchestratorService {
+    // Any service can report a failure directly to the orchestrator
+    rpc ReportFailure (FailureReportRequest) returns (Ack);
+}
+
+message FailureReportRequest {
+    string order_id = 1;
+    string service_name = 2;
+    string message = 3;
+    repeated int32 vector_clock = 4;
+}
+
+message Ack {
+    bool ok = 1;
+}

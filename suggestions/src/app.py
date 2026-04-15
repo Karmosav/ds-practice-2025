@@ -17,6 +17,11 @@ sys.path.insert(0, transaction_verification_grpc_path)
 import transaction_verification_pb2 as transaction_verification
 import transaction_verification_pb2_grpc as transaction_verification_grpc
 
+orchestrator_grpc_path = os.path.abspath(os.path.join(FILE, '../../../utils/pb/orchestrator'))
+sys.path.insert(0, orchestrator_grpc_path)
+import orchestrator_pb2 as orchestrator
+import orchestrator_pb2_grpc as orchestrator_grpc
+
 
 MY_IDX = 2
 ORDER_CACHE = {}
@@ -252,7 +257,23 @@ class SuggestionsService(suggestions_grpc.SuggestionsServiceServicer):
                     )
                 )
         except Exception as e:
-            print(f"[SG] failed to send success: {e}")
+            print(f"[SG] failed to send success to transaction_verification: {e}")
+
+            # If we cannot report success, surface this as a failure
+            # directly to the orchestrator so it can react.
+            try:
+                with grpc.insecure_channel("orchestrator:50060") as channel:
+                    stub = orchestrator_grpc.OrchestratorServiceStub(channel)
+                    stub.ReportFailure(
+                        orchestrator.FailureReportRequest(
+                            order_id=order_id,
+                            service_name="suggestions",
+                            message=f"Failed to send success to transaction_verification: {e}",
+                            vector_clock=final_vc,
+                        )
+                    )
+            except Exception as inner:
+                print(f"[SG] additionally failed to report failure to orchestrator: {inner}")
 
 
 def serve():
