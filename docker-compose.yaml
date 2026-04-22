@@ -104,6 +104,19 @@ services:
       # Transaction verification source (exclusive)
       - ./transaction_verification/src:/app/transaction_verification/src:Z
 
+  payment:
+    build:
+      context: ./
+      dockerfile: ./payment/Dockerfile
+    ports:
+      - 50059:50059
+    environment:
+      - PYTHONUNBUFFERED=TRUE
+      - PYTHONFILE=/app/payment/src/app.py
+    volumes:
+      - ./utils:/app/utils:z
+      - ./payment/src:/app/payment/src:Z
+
   orderqueue:
     build:
       context: ./

@@ -5,7 +5,7 @@ import warnings
 
 from utils.pb.books_database import booksdatabase_pb2 as utils_dot_pb_dot_books__database_dot_booksdatabase__pb2
 
-GRPC_GENERATED_VERSION = '1.70.0'
+GRPC_GENERATED_VERSION = '1.78.0'
 GRPC_VERSION = grpc.__version__
 _version_not_supported = False
 
@@ -18,7 +18,7 @@ except ImportError:
 if _version_not_supported:
     raise RuntimeError(
         f'The grpc package installed is at version {GRPC_VERSION},'
-        + f' but the generated code in utils/pb/books_database/booksdatabase_pb2_grpc.py depends on'
+        + ' but the generated code in utils/pb/books_database/booksdatabase_pb2_grpc.py depends on'
         + f' grpcio>={GRPC_GENERATED_VERSION}.'
         + f' Please upgrade your grpc module to grpcio>={GRPC_GENERATED_VERSION}'
         + f' or downgrade your generated code using grpcio-tools<={GRPC_VERSION}.'
@@ -44,71 +44,57 @@ class BooksDatabaseStub(object):
                 request_serializer=utils_dot_pb_dot_books__database_dot_booksdatabase__pb2.WriteRequest.SerializeToString,
                 response_deserializer=utils_dot_pb_dot_books__database_dot_booksdatabase__pb2.WriteResponse.FromString,
                 _registered_method=True)
+        self.Prepare = channel.unary_unary(
+                '/booksdatabase.BooksDatabase/Prepare',
+                request_serializer=utils_dot_pb_dot_books__database_dot_booksdatabase__pb2.PrepareRequest.SerializeToString,
+                response_deserializer=utils_dot_pb_dot_books__database_dot_booksdatabase__pb2.PrepareResponse.FromString,
+                _registered_method=True)
+        self.Commit = channel.unary_unary(
+                '/booksdatabase.BooksDatabase/Commit',
+                request_serializer=utils_dot_pb_dot_books__database_dot_booksdatabase__pb2.CommitRequest.SerializeToString,
+                response_deserializer=utils_dot_pb_dot_books__database_dot_booksdatabase__pb2.CommitResponse.FromString,
+                _registered_method=True)
+        self.Abort = channel.unary_unary(
+                '/booksdatabase.BooksDatabase/Abort',
+                request_serializer=utils_dot_pb_dot_books__database_dot_booksdatabase__pb2.AbortRequest.SerializeToString,
+                response_deserializer=utils_dot_pb_dot_books__database_dot_booksdatabase__pb2.AbortResponse.FromString,
+                _registered_method=True)
 
 
 class BooksDatabaseServicer(object):
     """Missing associated documentation comment in .proto file."""
-    def __init__(self):
-        self.store = {}
-
-    def _replica_label(self):
-        backups = getattr(self, "backups", None)
-        if backups is None:
-            return "BooksDB"
-        return "BooksDB-primary" if backups else "BooksDB-backup"
 
     def Read(self, request, context):
-        title = request.title
-        known = title in self.store
-        stock = self.store.get(title, 0)
-        print(
-            f"[{self._replica_label()}] Read title={title!r} -> stock={stock} "
-            f"(known_key={known}, store_size={len(self.store)})"
-        )
-        if not known:
-            print(
-                f"[{self._replica_label()}] Read: title not in store — returning default stock=0 "
-                f"(fulfillment will fail unless quantity is 0)"
-            )
-        return utils_dot_pb_dot_books__database_dot_booksdatabase__pb2.ReadResponse(stock=stock)
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
 
     def Write(self, request, context):
-        title = request.title
-        new_stock = request.new_stock
-        self.store[title] = new_stock
-        print(
-            f"[{self._replica_label()}] Write title={title!r} new_stock={new_stock} "
-            f"(store_size={len(self.store)})"
-        )
-        return utils_dot_pb_dot_books__database_dot_booksdatabase__pb2.WriteResponse(success=True)
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def Prepare(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def Commit(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def Abort(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
 
 
-class PrimaryReplica(BooksDatabaseServicer):
-    def __init__(self, backup_stubs):
-        super().__init__()
-        self.backups = backup_stubs  # List of gRPC stubs for backup replicas
-
-    def Write(self, request, context):
-        title = request.title
-        new_stock = request.new_stock
-        print(
-            f"[{self._replica_label()}] Write(local) title={title!r} new_stock={new_stock} "
-            f"replicating_to={len(self.backups)} backup(s)"
-        )
-        self.store[title] = new_stock
-
-        for i, backup in enumerate(self.backups):
-            try:
-                print(
-                    f"[BooksDB-primary] replicate Write -> backup[{i}] "
-                    f"title={title!r} new_stock={new_stock}"
-                )
-                backup.Write(request)
-                print(f"[BooksDB-primary] backup[{i}] Write acknowledged")
-            except Exception as e:
-                print(f"[BooksDB-primary] Failed to replicate to backup[{i}]: {e}")
-        return utils_dot_pb_dot_books__database_dot_booksdatabase__pb2.WriteResponse(success=True)
-    
 def add_BooksDatabaseServicer_to_server(servicer, server):
     rpc_method_handlers = {
             'Read': grpc.unary_unary_rpc_method_handler(
@@ -120,6 +106,21 @@ def add_BooksDatabaseServicer_to_server(servicer, server):
                     servicer.Write,
                     request_deserializer=utils_dot_pb_dot_books__database_dot_booksdatabase__pb2.WriteRequest.FromString,
                     response_serializer=utils_dot_pb_dot_books__database_dot_booksdatabase__pb2.WriteResponse.SerializeToString,
+            ),
+            'Prepare': grpc.unary_unary_rpc_method_handler(
+                    servicer.Prepare,
+                    request_deserializer=utils_dot_pb_dot_books__database_dot_booksdatabase__pb2.PrepareRequest.FromString,
+                    response_serializer=utils_dot_pb_dot_books__database_dot_booksdatabase__pb2.PrepareResponse.SerializeToString,
+            ),
+            'Commit': grpc.unary_unary_rpc_method_handler(
+                    servicer.Commit,
+                    request_deserializer=utils_dot_pb_dot_books__database_dot_booksdatabase__pb2.CommitRequest.FromString,
+                    response_serializer=utils_dot_pb_dot_books__database_dot_booksdatabase__pb2.CommitResponse.SerializeToString,
+            ),
+            'Abort': grpc.unary_unary_rpc_method_handler(
+                    servicer.Abort,
+                    request_deserializer=utils_dot_pb_dot_books__database_dot_booksdatabase__pb2.AbortRequest.FromString,
+                    response_serializer=utils_dot_pb_dot_books__database_dot_booksdatabase__pb2.AbortResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -176,6 +177,87 @@ class BooksDatabase(object):
             '/booksdatabase.BooksDatabase/Write',
             utils_dot_pb_dot_books__database_dot_booksdatabase__pb2.WriteRequest.SerializeToString,
             utils_dot_pb_dot_books__database_dot_booksdatabase__pb2.WriteResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def Prepare(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/booksdatabase.BooksDatabase/Prepare',
+            utils_dot_pb_dot_books__database_dot_booksdatabase__pb2.PrepareRequest.SerializeToString,
+            utils_dot_pb_dot_books__database_dot_booksdatabase__pb2.PrepareResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def Commit(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/booksdatabase.BooksDatabase/Commit',
+            utils_dot_pb_dot_books__database_dot_booksdatabase__pb2.CommitRequest.SerializeToString,
+            utils_dot_pb_dot_books__database_dot_booksdatabase__pb2.CommitResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def Abort(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/booksdatabase.BooksDatabase/Abort',
+            utils_dot_pb_dot_books__database_dot_booksdatabase__pb2.AbortRequest.SerializeToString,
+            utils_dot_pb_dot_books__database_dot_booksdatabase__pb2.AbortResponse.FromString,
             options,
             channel_credentials,
             insecure,

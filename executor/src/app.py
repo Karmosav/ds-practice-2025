@@ -23,10 +23,17 @@ sys.path.insert(0, books_database_grpc_path)
 import booksdatabase_pb2 as books_pb2
 import booksdatabase_pb2_grpc as booksdatabase_grpc
 
+payment_grpc_path = os.path.abspath(os.path.join(FILE, '../../../utils/pb/payment'))
+sys.path.insert(0, payment_grpc_path)
+import payment_pb2 as payment_pb2
+import payment_pb2_grpc as payment_grpc
+
 HEARTBEAT_INTERVAL_SECONDS = 1.0
 LEADER_POLL_INTERVAL_SECONDS = 0.5
 EMPTY_QUEUE_BACKOFF_SECONDS = 1.0
 RETRY_BACKOFF_SECONDS = 2.0
+PAYMENT_TARGET = os.getenv("PAYMENT_TARGET", "payment:50059")
+RPC_TIMEOUT_SECONDS = 2.0
 
 
 class ExecutorService(executor_grpc.OrderExecutorServiceServicer):
@@ -64,13 +71,13 @@ class ExecutorService(executor_grpc.OrderExecutorServiceServicer):
         with self._state_lock:
             self.processed_orders += 1
 
-    def execute_order(self, order_payload_json, db_stub):
-        """Read line items from checkout JSON, read stock, validate, write new stock (primary + replication)."""
+    def _build_db_updates(self, order_payload_json, db_stub):
+        """Create staged stock updates for DB participant; returns list[(title, new_stock)] or None."""
         try:
             payload = json.loads(order_payload_json or "{}")
         except json.JSONDecodeError as err:
             print(f"[Q] execute_order: invalid JSON ({err})")
-            return False
+            return None
 
         def split_book_title(display_name):
             display_name = (display_name or "").strip()
@@ -113,7 +120,7 @@ class ExecutorService(executor_grpc.OrderExecutorServiceServicer):
 
         if not lines:
             print("[Q] execute_order: no valid line items (missing title/quantity or empty items)")
-            return False
+            return None
 
         print(f"[Q] execute_order: parsed {len(lines)} line(s): {lines}")
 
@@ -134,26 +141,87 @@ class ExecutorService(executor_grpc.OrderExecutorServiceServicer):
                     )
                     return False
             print("[Q] execute_order: stock check passed for all lines")
+            updates = []
             for title, qty, stock in snapshots:
                 new_stock = stock - qty
-                write_response = db_stub.Write(
-                    books_pb2.WriteRequest(title=title, new_stock=new_stock)
-                )
-                print(
-                    f"[Q] execute_order: Write title={title!r} stock {stock} -> {new_stock} "
-                    f"success={write_response.success}"
-                )
-                if not write_response.success:
-                    return False
+                updates.append((title, new_stock))
         except grpc.RpcError as err:
             print(
                 f"[Q] execute_order: books DB gRPC error code={err.code()} "
                 f"details={err.details()!r}"
             )
+            return None
+
+        print(f"[Q] execute_order: built {len(updates)} staged stock update(s)")
+        return updates
+
+    def two_phase_commit(self, order_id, order_payload_json, db_stub, payment_stub):
+        updates = self._build_db_updates(order_payload_json, db_stub)
+        if updates is None:
             return False
 
-        print("[Q] execute_order: all reads/writes completed successfully")
-        return True
+        db_prepare_request = books_pb2.PrepareRequest(
+            order_id=order_id,
+            updates=[
+                books_pb2.StockUpdate(title=title, new_stock=new_stock)
+                for title, new_stock in updates
+            ],
+        )
+
+        db_ready = False
+        payment_ready = False
+        try:
+            db_prepare_response = db_stub.Prepare(db_prepare_request, timeout=RPC_TIMEOUT_SECONDS)
+            db_ready = bool(db_prepare_response.ready)
+            print(f"[EX:{self.executor_id}] DB Prepare order={order_id} ready={db_ready} msg={db_prepare_response.message!r}")
+        except grpc.RpcError as err:
+            print(f"[EX:{self.executor_id}] DB Prepare failed order={order_id} err={err}")
+
+        try:
+            payment_prepare_response = payment_stub.Prepare(
+                payment_pb2.PrepareRequest(order_id=order_id), timeout=RPC_TIMEOUT_SECONDS
+            )
+            payment_ready = bool(payment_prepare_response.ready)
+            print(f"[EX:{self.executor_id}] Payment Prepare order={order_id} ready={payment_ready}")
+        except grpc.RpcError as err:
+            print(f"[EX:{self.executor_id}] Payment Prepare failed order={order_id} err={err}")
+
+        decision_commit = db_ready and payment_ready
+        if decision_commit:
+            db_commit_ok = False
+            payment_commit_ok = False
+            try:
+                db_commit_response = db_stub.Commit(
+                    books_pb2.CommitRequest(order_id=order_id), timeout=RPC_TIMEOUT_SECONDS
+                )
+                db_commit_ok = bool(db_commit_response.success)
+                print(f"[EX:{self.executor_id}] DB Commit order={order_id} success={db_commit_ok} msg={db_commit_response.message!r}")
+            except grpc.RpcError as err:
+                print(f"[EX:{self.executor_id}] DB Commit failed order={order_id} err={err}")
+
+            try:
+                payment_commit_response = payment_stub.Commit(
+                    payment_pb2.CommitRequest(order_id=order_id), timeout=RPC_TIMEOUT_SECONDS
+                )
+                payment_commit_ok = bool(payment_commit_response.success)
+                print(f"[EX:{self.executor_id}] Payment Commit order={order_id} success={payment_commit_ok}")
+            except grpc.RpcError as err:
+                print(f"[EX:{self.executor_id}] Payment Commit failed order={order_id} err={err}")
+
+            return db_commit_ok and payment_commit_ok
+
+        try:
+            db_stub.Abort(books_pb2.AbortRequest(order_id=order_id), timeout=RPC_TIMEOUT_SECONDS)
+        except grpc.RpcError as err:
+            print(f"[EX:{self.executor_id}] DB Abort failed order={order_id} err={err}")
+
+        try:
+            payment_stub.Abort(payment_pb2.AbortRequest(order_id=order_id), timeout=RPC_TIMEOUT_SECONDS)
+        except grpc.RpcError as err:
+            print(f"[EX:{self.executor_id}] Payment Abort failed order={order_id} err={err}")
+
+        print(f"[EX:{self.executor_id}] 2PC decision=ABORT order={order_id} db_ready={db_ready} payment_ready={payment_ready}")
+        return False
     
     # This is the main loop of the executor service. It continuously sends heartbeats to the order queue 
     # to maintain leadership status, and attempts to dequeue orders for execution if it is the leader.
@@ -174,16 +242,22 @@ class ExecutorService(executor_grpc.OrderExecutorServiceServicer):
                         order = dequeue.order
                         print(f"[EX:{self.executor_id}] Dequeued order {order.order_id} for execution")
 
-                        # Connect to the primary books database service and execute
-                        # the inventory update workflow for this order.
+                        # Coordinator: run 2PC over DB and payment participants.
                         with grpc.insecure_channel('booksdb-primary:50051') as db_channel:
                             db_stub = booksdatabase_grpc.BooksDatabaseStub(db_channel)
-                            success = self.execute_order(order.order_payload_json, db_stub)
+                            with grpc.insecure_channel(PAYMENT_TARGET) as payment_channel:
+                                payment_stub = payment_grpc.PaymentStub(payment_channel)
+                                success = self.two_phase_commit(
+                                    order_id=order.order_id,
+                                    order_payload_json=order.order_payload_json,
+                                    db_stub=db_stub,
+                                    payment_stub=payment_stub,
+                                )
 
                         if not success:
-                            print(f"[EX:{self.executor_id}] Inventory workflow FAILED for order {order.order_id}")
+                            print(f"[EX:{self.executor_id}] 2PC FAILED for order {order.order_id}")
                         else:
-                            print(f"[EX:{self.executor_id}] Inventory workflow completed for order {order.order_id}")
+                            print(f"[EX:{self.executor_id}] 2PC COMMITTED for order {order.order_id}")
 
                         self._increment_processed()
                     else:
@@ -217,7 +291,7 @@ class ExecutorService(executor_grpc.OrderExecutorServiceServicer):
         leader_id = max(peer_ids) if peer_ids else self.executor_id
         granted = (leader_id == self.executor_id)
         self._set_leadership(leader_id, granted)
-                
+
 # start the executor service and connect it to the order queue
 def launch_executor(executor_id):
     queue_target = os.getenv("ORDER_QUEUE_TARGET", "orderqueue:50054")

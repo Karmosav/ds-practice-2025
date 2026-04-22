@@ -1,5 +1,6 @@
 import grpc
 from concurrent import futures
+import threading
 
 from utils.pb.payment import payment_pb2 as payment_pb2
 from utils.pb.payment import payment_pb2_grpc as payment_grpc
@@ -10,21 +11,29 @@ PAYMENT_PORT = 50059
 # gRPC Python names the servicer base class PaymentServicer (not "PaymentService").
 class PaymentService(payment_grpc.PaymentServicer):
     def __init__(self):
-        self.prepared = False
+        self.prepared_orders = set()
+        self._lock = threading.Lock()
 
     def Prepare(self, request, context):
         # Dummy validation logic, e.g. check funds
-        self.prepared = True
+        with self._lock:
+            self.prepared_orders.add(request.order_id)
         return payment_pb2.PrepareResponse(ready=True)
 
     def Commit(self, request, context):
-        if self.prepared:
+        with self._lock:
+            prepared = request.order_id in self.prepared_orders
+            if prepared:
+                self.prepared_orders.remove(request.order_id)
+
+        if prepared:
             print(f"Payment committed for order {request.order_id}")
-            self.prepared = False
-        return payment_pb2.CommitResponse(success=True)
+            return payment_pb2.CommitResponse(success=True)
+        return payment_pb2.CommitResponse(success=False)
 
     def Abort(self, request, context):
-        self.prepared = False
+        with self._lock:
+            self.prepared_orders.discard(request.order_id)
         print(f"Payment aborted for order {request.order_id}")
         return payment_pb2.AbortResponse(aborted=True)
 

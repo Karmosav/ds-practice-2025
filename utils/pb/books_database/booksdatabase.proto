@@ -4,6 +4,9 @@ package booksdatabase;
 service BooksDatabase {
     rpc Read (ReadRequest) returns (ReadResponse);
     rpc Write (WriteRequest) returns (WriteResponse);
+    rpc Prepare (PrepareRequest) returns (PrepareResponse);
+    rpc Commit (CommitRequest) returns (CommitResponse);
+    rpc Abort (AbortRequest) returns (AbortResponse);
 }
 
 message ReadRequest {
@@ -21,4 +24,36 @@ message WriteRequest {
 
 message WriteResponse {
     bool success = 1;
+}
+
+message StockUpdate {
+    string title = 1;
+    int32 new_stock = 2;
+}
+
+message PrepareRequest {
+    string order_id = 1;
+    repeated StockUpdate updates = 2;
+}
+
+message PrepareResponse {
+    bool ready = 1;
+    string message = 2;
+}
+
+message CommitRequest {
+    string order_id = 1;
+}
+
+message CommitResponse {
+    bool success = 1;
+    string message = 2;
+}
+
+message AbortRequest {
+    string order_id = 1;
+}
+
+message AbortResponse {
+    bool aborted = 1;
 }
