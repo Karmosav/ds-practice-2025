@@ -4,6 +4,8 @@ package booksdatabase;
 service BooksDatabase {
     rpc Read (ReadRequest) returns (ReadResponse);
     rpc Write (WriteRequest) returns (WriteResponse);
+    rpc IncrementStock (IncrementStockRequest) returns (StockMutationResponse);
+    rpc DecrementStock (DecrementStockRequest) returns (StockMutationResponse);
     rpc Prepare (PrepareRequest) returns (PrepareResponse);
     rpc Commit (CommitRequest) returns (CommitResponse);
     rpc Abort (AbortRequest) returns (AbortResponse);
@@ -26,14 +28,30 @@ message WriteResponse {
     bool success = 1;
 }
 
-message StockUpdate {
+message StockReservation {
     string title = 1;
-    int32 new_stock = 2;
+    int32 quantity = 2;
+}
+
+message IncrementStockRequest {
+    string title = 1;
+    int32 quantity = 2;
+}
+
+message DecrementStockRequest {
+    string order_id = 1;
+    repeated StockReservation reservations = 2;
+}
+
+message StockMutationResponse {
+    bool success = 1;
+    string message = 2;
+    int32 stock = 3;
 }
 
 message PrepareRequest {
     string order_id = 1;
-    repeated StockUpdate updates = 2;
+    repeated StockReservation reservations = 2;
 }
 
 message PrepareResponse {

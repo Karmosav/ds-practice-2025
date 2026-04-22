@@ -56,8 +56,8 @@ class ExecutorService(executor_grpc.OrderExecutorServiceServicer):
         with self._state_lock:
             self.processed_orders += 1
 
-    def _build_db_updates(self, order_payload_json, db_stub):
-        """Create staged stock updates for DB participant; returns list[(title, new_stock)] or None."""
+    def _build_stock_reservations(self, order_payload_json):
+        """Create stock reservations for DB participant; returns list[(title, quantity)] or None."""
         try:
             payload = json.loads(order_payload_json or "{}")
         except json.JSONDecodeError as err:
@@ -107,60 +107,41 @@ class ExecutorService(executor_grpc.OrderExecutorServiceServicer):
             print("[Q] execute_order: no valid line items (missing title/quantity or empty items)")
             return None
 
-        print(f"[Q] execute_order: parsed {len(lines)} line(s): {lines}")
-
-        try:
-            snapshots = []
-            for title, qty in lines:
-                response = db_stub.Read(books_pb2.ReadRequest(title=title))
-                snapshots.append((title, qty, response.stock))
-                print(
-                    f"[Q] execute_order: Read ok title={title!r} requested_qty={qty} "
-                    f"current_stock={response.stock}"
-                )
-            for title, qty, stock in snapshots:
-                if stock < qty:
-                    print(
-                        f"[Q] execute_order: insufficient stock title={title!r} "
-                        f"stock={stock} required={qty}"
-                    )
-                    return False
-            print("[Q] execute_order: stock check passed for all lines")
-            updates = []
-            for title, qty, stock in snapshots:
-                new_stock = stock - qty
-                updates.append((title, new_stock))
-        except grpc.RpcError as err:
-            print(
-                f"[Q] execute_order: books DB gRPC error code={err.code()} "
-                f"details={err.details()!r}"
-            )
-            return None
-
-        print(f"[Q] execute_order: built {len(updates)} staged stock update(s)")
-        return updates
+        print(f"[Q] execute_order: parsed {len(lines)} reservation(s): {lines}")
+        return lines
 
     def two_phase_commit(self, order_id, order_payload_json, db_stub, payment_stub):
-        updates = self._build_db_updates(order_payload_json, db_stub)
-        if updates is None:
+        reservations = self._build_stock_reservations(order_payload_json)
+        if reservations is None:
             return False
 
-        db_prepare_request = books_pb2.PrepareRequest(
-            order_id=order_id,
-            updates=[
-                books_pb2.StockUpdate(title=title, new_stock=new_stock)
-                for title, new_stock in updates
-            ],
-        )
+        db_decrement_response = None
+        try:
+            db_decrement_response = db_stub.DecrementStock(
+                books_pb2.DecrementStockRequest(
+                    order_id=order_id,
+                    reservations=[
+                        books_pb2.StockReservation(title=title, quantity=quantity)
+                        for title, quantity in reservations
+                    ],
+                ),
+                timeout=RPC_TIMEOUT_SECONDS,
+            )
+            print(
+                f"[EX:{self.executor_id}] DB DecrementStock order={order_id} "
+                f"success={db_decrement_response.success} msg={db_decrement_response.message!r} "
+                f"stock={db_decrement_response.stock}"
+            )
+        except grpc.RpcError as err:
+            print(f"[EX:{self.executor_id}] DB DecrementStock failed order={order_id} err={err}")
+            return False
+
+        if not db_decrement_response.success:
+            return False
 
         db_ready = False
         payment_ready = False
-        try:
-            db_prepare_response = db_stub.Prepare(db_prepare_request, timeout=RPC_TIMEOUT_SECONDS)
-            db_ready = bool(db_prepare_response.ready)
-            print(f"[EX:{self.executor_id}] DB Prepare order={order_id} ready={db_ready} msg={db_prepare_response.message!r}")
-        except grpc.RpcError as err:
-            print(f"[EX:{self.executor_id}] DB Prepare failed order={order_id} err={err}")
+        db_ready = True
 
         try:
             payment_prepare_response = payment_stub.Prepare(

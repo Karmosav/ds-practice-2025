@@ -3,7 +3,6 @@ from concurrent import futures
 import os
 import socket
 import threading
-import time
 
 from utils.pb.books_database import booksdatabase_pb2
 from utils.pb.books_database import booksdatabase_pb2_grpc
@@ -20,8 +19,9 @@ class BooksDatabaseTwoPhaseParticipant(booksdatabase_pb2_grpc.BooksDatabaseServi
         self.role = role
         self.backup_registry = backup_registry
         self.store = {}
-        self._prepared_updates = {}
-        self._prepared_lock = threading.Lock()
+        self._prepared_reservations = {}
+        self._committed_orders = set()
+        self._lock = threading.Lock()
 
     def _replica_label(self):
         return "BooksDB-primary" if self.role == "primary" else "BooksDB-backup"
@@ -31,70 +31,148 @@ class BooksDatabaseTwoPhaseParticipant(booksdatabase_pb2_grpc.BooksDatabaseServi
             return self.backup_registry.get_stubs()
         return self.backups
 
+    def _normalize_reservations(self, reservations):
+        # Aggregate quantities per title so stock checks stay correct even if
+        # the same title appears multiple times in a single request.
+        by_title = {}
+        for reservation in reservations:
+            title = (reservation.title or "").strip()
+            quantity = int(reservation.quantity)
+            if not title or quantity <= 0:
+                return None
+            by_title[title] = by_title.get(title, 0) + quantity
+        return list(by_title.items())
+
+    def _replicate_call(self, method_name, request):
+        for index, backup in enumerate(self._current_backup_stubs()):
+            try:
+                getattr(backup, method_name)(request)
+                print(f"[BooksDB-primary] replicated {method_name} to backup[{index}]")
+            except Exception as replication_error:
+                print(f"[BooksDB-primary] replication to backup[{index}] failed: {replication_error}")
+
     def Read(self, request, context):
-        title = request.title
-        stock = self.store.get(title, 0)
+        title = (request.title or "").strip()
+        with self._lock:
+            stock = self.store.get(title, 0)
         print(f"[{self._replica_label()}] Read title={title!r} stock={stock}")
         return booksdatabase_pb2.ReadResponse(stock=stock)
 
     def Write(self, request, context):
-        title = request.title
-        new_stock = request.new_stock
-        self.store[title] = new_stock
+        title = (request.title or "").strip()
+        new_stock = int(request.new_stock)
+        with self._lock:
+            self.store[title] = new_stock
         print(f"[{self._replica_label()}] Write title={title!r} new_stock={new_stock}")
 
-        for index, backup in enumerate(self._current_backup_stubs()):
-            try:
-                backup.Write(request)
-                print(f"[BooksDB-primary] replicated write to backup[{index}] title={title!r}")
-            except Exception as replication_error:
-                print(f"[BooksDB-primary] replication to backup[{index}] failed: {replication_error}")
+        if self.role == "primary":
+            self._replicate_call("Write", request)
 
         return booksdatabase_pb2.WriteResponse(success=True)
 
+    def IncrementStock(self, request, context):
+        title = (request.title or "").strip()
+        quantity = int(request.quantity)
+        if not title or quantity <= 0:
+            return booksdatabase_pb2.StockMutationResponse(success=False, message="invalid increment request", stock=0)
+
+        with self._lock:
+            self.store[title] = self.store.get(title, 0) + quantity
+            stock = self.store[title]
+
+        print(f"[{self._replica_label()}] IncrementStock title={title!r} quantity={quantity} stock={stock}")
+        if self.role == "primary":
+            self._replicate_call("IncrementStock", request)
+        return booksdatabase_pb2.StockMutationResponse(success=True, message="incremented", stock=stock)
+
+    def DecrementStock(self, request, context):
+        order_id = (request.order_id or "").strip()
+        reservations = self._normalize_reservations(request.reservations)
+        if not order_id:
+            return booksdatabase_pb2.StockMutationResponse(success=False, message="missing order_id", stock=0)
+        if not reservations:
+            return booksdatabase_pb2.StockMutationResponse(success=False, message="invalid reservations", stock=0)
+
+        with self._lock:
+            if order_id in self._committed_orders:
+                return booksdatabase_pb2.StockMutationResponse(success=True, message="already committed", stock=0)
+
+            existing = self._prepared_reservations.get(order_id)
+            if existing is not None:
+                if existing == reservations:
+                    last_title = reservations[-1][0]
+                    return booksdatabase_pb2.StockMutationResponse(success=True, message="already prepared", stock=self.store.get(last_title, 0))
+                return booksdatabase_pb2.StockMutationResponse(success=False, message="conflicting reservation replay", stock=0)
+
+            for title, quantity in reservations:
+                if self.store.get(title, 0) < quantity:
+                    return booksdatabase_pb2.StockMutationResponse(success=False, message=f"insufficient stock for {title}", stock=self.store.get(title, 0))
+
+            for title, quantity in reservations:
+                self.store[title] = self.store.get(title, 0) - quantity
+
+            self._prepared_reservations[order_id] = reservations
+            last_stock = self.store.get(reservations[-1][0], 0)
+
+        print(f"[{self._replica_label()}] DecrementStock order={order_id!r} reserved_items={len(reservations)}")
+        if self.role == "primary":
+            self._replicate_call("DecrementStock", request)
+        return booksdatabase_pb2.StockMutationResponse(success=True, message="reserved", stock=last_stock)
+
     def Prepare(self, request, context):
         order_id = request.order_id
-        updates = list(request.updates)
+        reservations = self._normalize_reservations(request.reservations)
         if not order_id:
             return booksdatabase_pb2.PrepareResponse(ready=False, message="missing order_id")
-        if not updates:
-            return booksdatabase_pb2.PrepareResponse(ready=False, message="no staged updates")
+        if not reservations:
+            return booksdatabase_pb2.PrepareResponse(ready=False, message="invalid reservations")
 
-        for update in updates:
-            if update.new_stock < 0:
-                return booksdatabase_pb2.PrepareResponse(
-                    ready=False,
-                    message=f"negative stock for title {update.title}",
-                )
+        with self._lock:
+            existing = self._prepared_reservations.get(order_id)
+            if existing is None:
+                for title, quantity in reservations:
+                    if self.store.get(title, 0) < quantity:
+                        return booksdatabase_pb2.PrepareResponse(ready=False, message=f"insufficient stock for {title}")
+                for title, quantity in reservations:
+                    self.store[title] = self.store.get(title, 0) - quantity
+                self._prepared_reservations[order_id] = reservations
+            elif existing != reservations:
+                return booksdatabase_pb2.PrepareResponse(ready=False, message="conflicting reservation replay")
 
-        with self._prepared_lock:
-            self._prepared_updates[order_id] = updates
-
-        print(f"[BooksDB-2PC] Prepared order={order_id} staged_updates={len(updates)}")
+        print(f"[BooksDB-2PC] Prepared order={order_id} reserved_items={len(reservations)}")
         return booksdatabase_pb2.PrepareResponse(ready=True, message="prepared")
 
     def Commit(self, request, context):
         order_id = request.order_id
-        with self._prepared_lock:
-            staged_updates = self._prepared_updates.pop(order_id, None)
+        with self._lock:
+            if order_id in self._committed_orders:
+                return booksdatabase_pb2.CommitResponse(success=True, message="already committed")
 
-        if staged_updates is None:
-            return booksdatabase_pb2.CommitResponse(success=False, message="order not prepared")
+            staged_reservations = self._prepared_reservations.pop(order_id, None)
+            if staged_reservations is None:
+                return booksdatabase_pb2.CommitResponse(success=False, message="order not prepared")
 
-        for update in staged_updates:
-            self.Write(
-                booksdatabase_pb2.WriteRequest(title=update.title, new_stock=update.new_stock),
-                context,
-            )
+            self._committed_orders.add(order_id)
 
-        print(f"[BooksDB-2PC] Committed order={order_id} applied_updates={len(staged_updates)}")
+        print(f"[BooksDB-2PC] Committed order={order_id} applied_reservations={len(staged_reservations)}")
+        if self.role == "primary":
+            self._replicate_call("Commit", request)
         return booksdatabase_pb2.CommitResponse(success=True, message="committed")
 
     def Abort(self, request, context):
         order_id = request.order_id
-        with self._prepared_lock:
-            self._prepared_updates.pop(order_id, None)
+        with self._lock:
+            if order_id in self._committed_orders:
+                return booksdatabase_pb2.AbortResponse(aborted=False)
+
+            staged_reservations = self._prepared_reservations.pop(order_id, None)
+            if staged_reservations is not None:
+                for title, quantity in staged_reservations:
+                    self.store[title] = self.store.get(title, 0) + quantity
+
         print(f"[BooksDB-2PC] Aborted order={order_id}")
+        if self.role == "primary":
+            self._replicate_call("Abort", request)
         return booksdatabase_pb2.AbortResponse(aborted=True)
 
 # Helper to get backup addresses from env (comma-separated)

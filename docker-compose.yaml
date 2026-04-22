@@ -113,9 +113,11 @@ services:
     environment:
       - PYTHONUNBUFFERED=TRUE
       - PYTHONFILE=/app/payment/src/app.py
+      - PAYMENT_STATE_FILE=/app/payment/state/payment_state.json
     volumes:
       - ./utils:/app/utils:z
       - ./payment/src:/app/payment/src:Z
+      - ./payment/state:/app/payment/state:Z
 
   orderqueue:
     build:

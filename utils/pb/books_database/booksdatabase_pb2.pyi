@@ -32,21 +32,47 @@ class WriteResponse(_message.Message):
     success: bool
     def __init__(self, success: bool = ...) -> None: ...
 
-class StockUpdate(_message.Message):
-    __slots__ = ("title", "new_stock")
+class StockReservation(_message.Message):
+    __slots__ = ("title", "quantity")
     TITLE_FIELD_NUMBER: _ClassVar[int]
-    NEW_STOCK_FIELD_NUMBER: _ClassVar[int]
+    QUANTITY_FIELD_NUMBER: _ClassVar[int]
     title: str
-    new_stock: int
-    def __init__(self, title: _Optional[str] = ..., new_stock: _Optional[int] = ...) -> None: ...
+    quantity: int
+    def __init__(self, title: _Optional[str] = ..., quantity: _Optional[int] = ...) -> None: ...
+
+class IncrementStockRequest(_message.Message):
+    __slots__ = ("title", "quantity")
+    TITLE_FIELD_NUMBER: _ClassVar[int]
+    QUANTITY_FIELD_NUMBER: _ClassVar[int]
+    title: str
+    quantity: int
+    def __init__(self, title: _Optional[str] = ..., quantity: _Optional[int] = ...) -> None: ...
+
+class DecrementStockRequest(_message.Message):
+    __slots__ = ("order_id", "reservations")
+    ORDER_ID_FIELD_NUMBER: _ClassVar[int]
+    RESERVATIONS_FIELD_NUMBER: _ClassVar[int]
+    order_id: str
+    reservations: _containers.RepeatedCompositeFieldContainer[StockReservation]
+    def __init__(self, order_id: _Optional[str] = ..., reservations: _Optional[_Iterable[_Union[StockReservation, _Mapping]]] = ...) -> None: ...
+
+class StockMutationResponse(_message.Message):
+    __slots__ = ("success", "message", "stock")
+    SUCCESS_FIELD_NUMBER: _ClassVar[int]
+    MESSAGE_FIELD_NUMBER: _ClassVar[int]
+    STOCK_FIELD_NUMBER: _ClassVar[int]
+    success: bool
+    message: str
+    stock: int
+    def __init__(self, success: bool = ..., message: _Optional[str] = ..., stock: _Optional[int] = ...) -> None: ...
 
 class PrepareRequest(_message.Message):
-    __slots__ = ("order_id", "updates")
+    __slots__ = ("order_id", "reservations")
     ORDER_ID_FIELD_NUMBER: _ClassVar[int]
-    UPDATES_FIELD_NUMBER: _ClassVar[int]
+    RESERVATIONS_FIELD_NUMBER: _ClassVar[int]
     order_id: str
-    updates: _containers.RepeatedCompositeFieldContainer[StockUpdate]
-    def __init__(self, order_id: _Optional[str] = ..., updates: _Optional[_Iterable[_Union[StockUpdate, _Mapping]]] = ...) -> None: ...
+    reservations: _containers.RepeatedCompositeFieldContainer[StockReservation]
+    def __init__(self, order_id: _Optional[str] = ..., reservations: _Optional[_Iterable[_Union[StockReservation, _Mapping]]] = ...) -> None: ...
 
 class PrepareResponse(_message.Message):
     __slots__ = ("ready", "message")
