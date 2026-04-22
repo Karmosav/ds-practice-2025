@@ -1,26 +1,13 @@
-import sys
-import os
 import json
 import threading
 import grpc
 from concurrent import futures
-
-FILE = __file__ if '__file__' in globals() else os.getenv("PYTHONFILE", "")
-
-suggestions_grpc_path = os.path.abspath(os.path.join(FILE, '../../../utils/pb/suggestions'))
-sys.path.insert(0, suggestions_grpc_path)
-import suggestions_pb2 as suggestions
-import suggestions_pb2_grpc as suggestions_grpc
-
-transaction_verification_grpc_path = os.path.abspath(os.path.join(FILE, '../../../utils/pb/transaction_verification'))
-sys.path.insert(0, transaction_verification_grpc_path)
-import transaction_verification_pb2 as transaction_verification
-import transaction_verification_pb2_grpc as transaction_verification_grpc
-
-orchestrator_grpc_path = os.path.abspath(os.path.join(FILE, '../../../utils/pb/orchestrator'))
-sys.path.insert(0, orchestrator_grpc_path)
-import orchestrator_pb2 as orchestrator
-import orchestrator_pb2_grpc as orchestrator_grpc
+from utils.pb.suggestions import suggestions_pb2 as suggestions
+from utils.pb.suggestions import suggestions_pb2_grpc as suggestions_grpc
+from utils.pb.transaction_verification import transaction_verification_pb2 as transaction_verification
+from utils.pb.transaction_verification import transaction_verification_pb2_grpc as transaction_verification_grpc
+from utils.pb.orchestrator import orchestrator_pb2 as orchestrator
+from utils.pb.orchestrator import orchestrator_pb2_grpc as orchestrator_grpc
 
 
 MY_IDX = 2

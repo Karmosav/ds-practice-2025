@@ -1,16 +1,9 @@
-import sys
-import os
 import json
 import threading
 import grpc
 from concurrent import futures
-
-FILE = __file__ if '__file__' in globals() else os.getenv("PYTHONFILE", "")
-
-orderqueue_grpc_path = os.path.abspath(os.path.join(FILE, '../../../utils/pb/orderqueue'))
-sys.path.insert(0, orderqueue_grpc_path)
-import orderqueue_pb2 as orderqueue
-import orderqueue_pb2_grpc as orderqueue_grpc
+from utils.pb.orderqueue import orderqueue_pb2 as orderqueue
+from utils.pb.orderqueue import orderqueue_pb2_grpc as orderqueue_grpc
 
 
 class OrderQueueService(orderqueue_grpc.OrderQueueServiceServicer):

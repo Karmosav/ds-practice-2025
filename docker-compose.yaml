@@ -154,35 +154,26 @@ services:
     environment:
       - PYTHONUNBUFFERED=TRUE
       - PYTHONFILE=/app/books_database/src/app.py
-      - BOOKSDB_BACKUPS=booksdb-backup1:50051,booksdb-backup2:50051
+      - BOOKSDB_ROLE=primary
+      - BOOKSDB_BACKUP_SERVICE=booksdb-backup
+      - BOOKSDB_BACKUP_PORT=50051
+      - BOOKSDB_DISCOVERY_INTERVAL_SECONDS=5
     ports:
       - 55051:50051  # Changed host port to 55051 to avoid conflict
     volumes:
       - ./utils:/app/utils:z
       - ./books_database/src:/app/books_database/src:Z
 
-  booksdb-backup1:
+  booksdb-backup:
     build:
       context: ./
       dockerfile: ./books_database/Dockerfile
     environment:
       - PYTHONUNBUFFERED=TRUE
       - PYTHONFILE=/app/books_database/src/app.py
-      - BOOKSDB_BACKUPS=
+      - BOOKSDB_ROLE=backup
     # No host port mapping for backup
     volumes:
       - ./utils:/app/utils:z
       - ./books_database/src:/app/books_database/src:Z
-
-  booksdb-backup2:
-    build:
-      context: ./
-      dockerfile: ./books_database/Dockerfile
-    environment:
-      - PYTHONUNBUFFERED=TRUE
-      - PYTHONFILE=/app/books_database/src/app.py
-      - BOOKSDB_BACKUPS=
-    # No host port mapping for backup
-    volumes:
-      - ./utils:/app/utils:z
-      - ./books_database/src:/app/books_database/src:Z
+    # Scale this service with: docker compose up -d --scale booksdb-backup=2

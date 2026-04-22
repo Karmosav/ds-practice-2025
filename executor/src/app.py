@@ -1,32 +1,17 @@
-import sys
 import os
 import time
 import threading
 import json
 import grpc
 from concurrent import futures
-
-FILE = __file__ if '__file__' in globals() else os.getenv("PYTHONFILE", "")
-
-orderqueue_grpc_path = os.path.abspath(os.path.join(FILE, '../../../utils/pb/orderqueue'))
-sys.path.insert(0, orderqueue_grpc_path)
-import orderqueue_pb2 as orderqueue
-import orderqueue_pb2_grpc as orderqueue_grpc
-
-executor_grpc_path = os.path.abspath(os.path.join(FILE, '../../../utils/pb/executor'))
-sys.path.insert(0, executor_grpc_path)
-import executor_pb2 as executor
-import executor_pb2_grpc as executor_grpc
-
-books_database_grpc_path = os.path.abspath(os.path.join(FILE, '../../../utils/pb/books_database'))
-sys.path.insert(0, books_database_grpc_path)
-import booksdatabase_pb2 as books_pb2
-import booksdatabase_pb2_grpc as booksdatabase_grpc
-
-payment_grpc_path = os.path.abspath(os.path.join(FILE, '../../../utils/pb/payment'))
-sys.path.insert(0, payment_grpc_path)
-import payment_pb2 as payment_pb2
-import payment_pb2_grpc as payment_grpc
+from utils.pb.orderqueue import orderqueue_pb2 as orderqueue
+from utils.pb.orderqueue import orderqueue_pb2_grpc as orderqueue_grpc
+from utils.pb.executor import executor_pb2 as executor
+from utils.pb.executor import executor_pb2_grpc as executor_grpc
+from utils.pb.books_database import booksdatabase_pb2 as books_pb2
+from utils.pb.books_database import booksdatabase_pb2_grpc as booksdatabase_grpc
+from utils.pb.payment import payment_pb2 as payment_pb2
+from utils.pb.payment import payment_pb2_grpc as payment_grpc
 
 HEARTBEAT_INTERVAL_SECONDS = 1.0
 LEADER_POLL_INTERVAL_SECONDS = 0.5

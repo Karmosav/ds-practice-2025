@@ -3,7 +3,10 @@
 import grpc
 import warnings
 
-import transaction_verification_pb2 as transaction__verification__pb2
+try:
+    from . import transaction_verification_pb2 as transaction__verification__pb2
+except ImportError:
+    import transaction_verification_pb2 as transaction__verification__pb2
 
 GRPC_GENERATED_VERSION = '1.78.0'
 GRPC_VERSION = grpc.__version__

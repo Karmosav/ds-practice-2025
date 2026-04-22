@@ -1,4 +1,3 @@
-import sys
 import os
 import grpc
 import json
@@ -8,33 +7,16 @@ from flask import Flask, request
 from flask_cors import CORS
 from concurrent.futures import ThreadPoolExecutor
 import uuid
-
-FILE = __file__ if '__file__' in globals() else os.getenv("PYTHONFILE", "")
-
-fraud_detection_grpc_path = os.path.abspath(os.path.join(FILE, '../../../utils/pb/fraud_detection'))
-sys.path.insert(0, fraud_detection_grpc_path)
-import fraud_detection_pb2 as fraud_detection
-import fraud_detection_pb2_grpc as fraud_detection_grpc
-
-transaction_verification_grpc_path = os.path.abspath(os.path.join(FILE, '../../../utils/pb/transaction_verification'))
-sys.path.insert(0, transaction_verification_grpc_path)
-import transaction_verification_pb2 as transaction_verification
-import transaction_verification_pb2_grpc as transaction_verification_grpc
-
-suggestions_grpc_path = os.path.abspath(os.path.join(FILE, '../../../utils/pb/suggestions'))
-sys.path.insert(0, suggestions_grpc_path)
-import suggestions_pb2 as suggestions
-import suggestions_pb2_grpc as suggestions_grpc
-
-orderqueue_grpc_path = os.path.abspath(os.path.join(FILE, '../../../utils/pb/orderqueue'))
-sys.path.insert(0, orderqueue_grpc_path)
-import orderqueue_pb2 as orderqueue
-import orderqueue_pb2_grpc as orderqueue_grpc
-
-orchestrator_grpc_path = os.path.abspath(os.path.join(FILE, '../../../utils/pb/orchestrator'))
-sys.path.insert(0, orchestrator_grpc_path)
-import orchestrator_pb2 as orchestrator
-import orchestrator_pb2_grpc as orchestrator_grpc
+from utils.pb.fraud_detection import fraud_detection_pb2 as fraud_detection
+from utils.pb.fraud_detection import fraud_detection_pb2_grpc as fraud_detection_grpc
+from utils.pb.transaction_verification import transaction_verification_pb2 as transaction_verification
+from utils.pb.transaction_verification import transaction_verification_pb2_grpc as transaction_verification_grpc
+from utils.pb.suggestions import suggestions_pb2 as suggestions
+from utils.pb.suggestions import suggestions_pb2_grpc as suggestions_grpc
+from utils.pb.orderqueue import orderqueue_pb2 as orderqueue
+from utils.pb.orderqueue import orderqueue_pb2_grpc as orderqueue_grpc
+from utils.pb.orchestrator import orchestrator_pb2 as orchestrator
+from utils.pb.orchestrator import orchestrator_pb2_grpc as orchestrator_grpc
 
 
 _ORDER_FAILURES = {}

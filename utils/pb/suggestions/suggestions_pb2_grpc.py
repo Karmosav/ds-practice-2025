@@ -3,7 +3,10 @@
 import grpc
 import warnings
 
-import suggestions_pb2 as suggestions__pb2
+try:
+    from . import suggestions_pb2 as suggestions__pb2
+except ImportError:
+    import suggestions_pb2 as suggestions__pb2
 
 GRPC_GENERATED_VERSION = '1.70.0'
 GRPC_VERSION = grpc.__version__

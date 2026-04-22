@@ -3,7 +3,10 @@
 import grpc
 import warnings
 
-import fraud_detection_pb2 as fraud__detection__pb2
+try:
+    from . import fraud_detection_pb2 as fraud__detection__pb2
+except ImportError:
+    import fraud_detection_pb2 as fraud__detection__pb2
 
 GRPC_GENERATED_VERSION = '1.70.0'
 GRPC_VERSION = grpc.__version__
