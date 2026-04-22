@@ -39,6 +39,7 @@ import orchestrator_pb2_grpc as orchestrator_grpc
 
 _ORDER_FAILURES = {}
 _ORDER_FAILURES_LOCK = threading.Lock()
+_FAILURE_GRPC_SERVER = None
 
 
 class OrchestratorFailureService(orchestrator_grpc.OrchestratorServiceServicer):
@@ -283,5 +284,6 @@ def checkout():
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    _start_failure_grpc_server()
+    # Keep a strong reference so the gRPC server stays alive for the whole process lifetime.
+    _FAILURE_GRPC_SERVER = _start_failure_grpc_server()
     app.run(host="0.0.0.0", port=5000)
