@@ -20,7 +20,6 @@ RETRY_BACKOFF_SECONDS = 2.0
 PAYMENT_TARGET = os.getenv("PAYMENT_TARGET", "payment:50059")
 RPC_TIMEOUT_SECONDS = 2.0
 
-
 class ExecutorService(executor_grpc.OrderExecutorServiceServicer):
     def __init__(self, executor_id, queue_stub, peer_targets):
         self.executor_id = executor_id
