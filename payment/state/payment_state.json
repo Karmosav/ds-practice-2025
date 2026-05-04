@@ -1,5 +1,7 @@
 {
   "aborted_orders": [],
-  "committed_orders": [],
+  "committed_orders": [
+    "398d6ffd-6b52-4114-b730-a857f7faa0cd"
+  ],
   "prepared_orders": []
 }

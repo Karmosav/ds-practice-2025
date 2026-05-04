@@ -110,11 +110,11 @@ class BooksDatabaseTwoPhaseParticipant(booksdatabase_pb2_grpc.BooksDatabaseServi
 
             for title, quantity in reservations:
                 self.store[title] = self.store.get(title, 0) - quantity
+                stock = self.store[title]
+                print(f"[{self._replica_label()}] DecrementStock title={title!r} quantity={quantity} stock={stock}")
 
             self._prepared_reservations[order_id] = reservations
             last_stock = self.store.get(reservations[-1][0], 0)
-
-        print(f"[{self._replica_label()}] DecrementStock order={order_id!r} reserved_items={len(reservations)}")
         if self.role == "primary":
             self._replicate_call("DecrementStock", request)
         return booksdatabase_pb2.StockMutationResponse(success=True, message="reserved", stock=last_stock)
@@ -200,6 +200,7 @@ class BackupRegistry:
         self._entries = []
         self._thread = None
         self._stop = threading.Event()
+        self._last_printed_targets = None
 
     def _desired_targets(self):
         discovered = []
@@ -229,7 +230,9 @@ class BackupRegistry:
 
             self._entries = next_entries
 
-        print(f"[BooksDB-primary] backup targets refreshed count={len(desired)} targets={desired!r}")
+            if desired != self._last_printed_targets:
+                self._last_printed_targets = desired
+                print(f"[BooksDB-primary] backup targets refreshed count={len(desired)} targets={desired!r}")
 
     def get_stubs(self):
         with self._lock:
