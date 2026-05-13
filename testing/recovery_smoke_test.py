@@ -3,9 +3,12 @@ import sys
 from pathlib import Path
 
 # Allow running this file directly from the repository root without setting PYTHONPATH.
-REPO_ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = Path(__file__).resolve().parent.parent
+PAYMENT_SRC = REPO_ROOT / "payment" / "src"
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
+if str(PAYMENT_SRC) not in sys.path:
+    sys.path.insert(0, str(PAYMENT_SRC))
 
 from app import PaymentService
 from utils.pb.payment import payment_pb2
