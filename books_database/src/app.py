@@ -6,6 +6,10 @@ import threading
 
 from utils.pb.books_database import booksdatabase_pb2
 from utils.pb.books_database import booksdatabase_pb2_grpc
+from utils.observability import configure_otel
+
+
+configure_otel("books_database")
 
 # Titles must match checkout line items after splitting on " by " (see orderqueue execute_order).
 DEFAULT_INVENTORY = {

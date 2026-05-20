@@ -12,6 +12,24 @@ from utils.pb.books_database import booksdatabase_pb2 as books_pb2
 from utils.pb.books_database import booksdatabase_pb2_grpc as booksdatabase_grpc
 from utils.pb.payment import payment_pb2 as payment_pb2
 from utils.pb.payment import payment_pb2_grpc as payment_grpc
+from utils.observability import configure_otel
+
+
+configure_otel("executor")
+
+from opentelemetry import trace, metrics
+tracer = trace.get_tracer(__name__)
+meter = metrics.get_meter(__name__)
+
+# Instruments
+processed_counter = meter.create_counter("executor_processed_orders", description="Number of processed orders")
+processing_histogram = meter.create_histogram("executor_processing_ms", description="Executor processing durations ms")
+inflight_updown_executor = meter.create_up_down_counter("executor_inflight", description="Executor inflight executions")
+
+def _processed_gauge_cb(observable):
+    observable.observe(getattr(processed_counter, "_value", 0))
+
+meter.create_observable_gauge("executor_processed", callbacks=[_processed_gauge_cb], description="Total processed orders (approx)")
 
 HEARTBEAT_INTERVAL_SECONDS = 1.0
 LEADER_POLL_INTERVAL_SECONDS = 0.5
@@ -115,8 +133,11 @@ class ExecutorService(executor_grpc.OrderExecutorServiceServicer):
             return False
 
         db_decrement_response = None
+        inflight_updown_executor.add(1)
+        start = time.time()
         try:
-            db_decrement_response = db_stub.DecrementStock(
+            with tracer.start_as_current_span("db_decrement"):
+                db_decrement_response = db_stub.DecrementStock(
                 books_pb2.DecrementStockRequest(
                     order_id=order_id,
                     reservations=[
@@ -143,9 +164,10 @@ class ExecutorService(executor_grpc.OrderExecutorServiceServicer):
         db_ready = True
 
         try:
-            payment_prepare_response = payment_stub.Prepare(
-                payment_pb2.PrepareRequest(order_id=order_id), timeout=RPC_TIMEOUT_SECONDS
-            )
+            with tracer.start_as_current_span("payment_prepare"):
+                payment_prepare_response = payment_stub.Prepare(
+                    payment_pb2.PrepareRequest(order_id=order_id), timeout=RPC_TIMEOUT_SECONDS
+                )
             payment_ready = bool(payment_prepare_response.ready)
             print(f"[EX:{self.executor_id}] Payment Prepare order={order_id} ready={payment_ready}")
         except grpc.RpcError as err:
@@ -176,14 +198,22 @@ class ExecutorService(executor_grpc.OrderExecutorServiceServicer):
             return db_commit_ok and payment_commit_ok
 
         try:
-            db_stub.Abort(books_pb2.AbortRequest(order_id=order_id), timeout=RPC_TIMEOUT_SECONDS)
+            with tracer.start_as_current_span("db_abort"):
+                db_stub.Abort(books_pb2.AbortRequest(order_id=order_id), timeout=RPC_TIMEOUT_SECONDS)
         except grpc.RpcError as err:
             print(f"[EX:{self.executor_id}] DB Abort failed order={order_id} err={err}")
 
         try:
-            payment_stub.Abort(payment_pb2.AbortRequest(order_id=order_id), timeout=RPC_TIMEOUT_SECONDS)
+            with tracer.start_as_current_span("payment_abort"):
+                payment_stub.Abort(payment_pb2.AbortRequest(order_id=order_id), timeout=RPC_TIMEOUT_SECONDS)
         except grpc.RpcError as err:
             print(f"[EX:{self.executor_id}] Payment Abort failed order={order_id} err={err}")
+
+        finally:
+            duration_ms = int((time.time() - start) * 1000)
+            processing_histogram.record(duration_ms)
+            inflight_updown_executor.add(-1)
+            processed_counter.add(1 if decision_commit else 0)
 
         print(f"[EX:{self.executor_id}] 2PC decision=ABORT order={order_id} db_ready={db_ready} payment_ready={payment_ready}")
         return False

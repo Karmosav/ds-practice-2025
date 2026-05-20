@@ -12,6 +12,10 @@ from utils.pb.transaction_verification import transaction_verification_pb2 as tr
 from utils.pb.transaction_verification import transaction_verification_pb2_grpc as transaction_verification_grpc
 from utils.pb.orchestrator import orchestrator_pb2 as orchestrator
 from utils.pb.orchestrator import orchestrator_pb2_grpc as orchestrator_grpc
+from utils.observability import configure_otel
+
+
+configure_otel("fraud_detection")
 
 
 MY_IDX = 1

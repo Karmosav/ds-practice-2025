@@ -79,7 +79,7 @@ class CheckoutUser(HttpUser):
         Hardcoded to aggressively request the exact same book to trigger DB locked/conflict state.
         """
         # Constantly buying the same book to trigger a conflict
-        payload = self.generate_base_order([{"name": "CONFLICTING_BOOK_NAME", "quantity": 1}])
+        payload = self.generate_base_order([{"name": "The Hobbit", "quantity": 500}])
         payload["userComment"] = "Conflicting order simulation"
         
         with self.client.post("/checkout", json=payload, catch_response=True) as response:

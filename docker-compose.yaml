@@ -179,3 +179,12 @@ services:
       - ./utils:/app/utils:z
       - ./books_database/src:/app/books_database/src:Z
     # Scale this service with: docker compose up -d --scale booksdb-backup=2
+
+  observability:
+    image: grafana/otel-lgtm
+    ports:
+      - "3000:3000"
+      - "4317:4317"
+      - "4318:4318"
+    environment:
+      - OTEL_METRIC_EXPORT_INTERVAL=1000

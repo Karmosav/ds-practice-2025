@@ -1,6 +1,7 @@
 import json
 import threading
 import grpc
+import time
 from concurrent import futures
 from utils.pb.transaction_verification import transaction_verification_pb2 as transaction_verification
 from utils.pb.transaction_verification import transaction_verification_pb2_grpc as transaction_verification_grpc
@@ -8,6 +9,25 @@ from utils.pb.fraud_detection import fraud_detection_pb2 as fraud_detection
 from utils.pb.fraud_detection import fraud_detection_pb2_grpc as fraud_detection_grpc
 from utils.pb.orchestrator import orchestrator_pb2 as orchestrator
 from utils.pb.orchestrator import orchestrator_pb2_grpc as orchestrator_grpc
+from utils.observability import configure_otel
+
+
+configure_otel("transaction_verification")
+
+from opentelemetry import trace, metrics
+tracer = trace.get_tracer(__name__)
+meter = metrics.get_meter(__name__)
+
+# Instruments
+tv_start_counter = meter.create_counter("tv_start_requests", description="StartCheckoutFlow requests")
+tv_finalize_counter = meter.create_counter("tv_finalize_requests", description="FinalizeOrder calls")
+tv_inflight = meter.create_up_down_counter("tv_inflight_orders", description="Currently processing orders in TV")
+tv_latency = meter.create_histogram("tv_finalize_ms", description="Finalize handling latency ms")
+
+def _cache_size_cb(observable):
+    observable.observe(len(ORDER_CACHE))
+
+meter.create_observable_gauge("tv_cache_size", callbacks=[_cache_size_cb], description="Number of cached orders in TV")
 
 
 SERVICE_NAME = "transaction_verification"
@@ -46,6 +66,7 @@ class OrderState:
         self.success = False
         self.message = ""
         self.recommendations = []
+        self.start_time = None
         self.lock = threading.Lock()
         self.cond = threading.Condition(self.lock)
 
@@ -96,6 +117,10 @@ class TransactionVerificationService(transaction_verification_grpc.TransactionVe
                 vector_clock=zero_vc(),
                 suggestions=[]
             )
+        # metrics/tracing
+        tv_start_counter.add(1)
+        tv_inflight.add(1)
+        state.start_time = time.time()
 
         t_a = threading.Thread(target=self._validate_order_items, args=(order_id,))
         t_b = threading.Thread(target=self._validate_mandatory_user_data, args=(order_id,))
@@ -140,6 +165,12 @@ class TransactionVerificationService(transaction_verification_grpc.TransactionVe
                 {"title": s.title, "author": s.author}
                 for s in request.suggestions
             ]
+            # metrics
+            tv_finalize_counter.add(1)
+            if state.start_time is not None:
+                duration_ms = int((time.time() - state.start_time) * 1000)
+                tv_latency.record(duration_ms)
+            tv_inflight.add(-1)
             print(f"[TV] FinalizeOrder order={request.order_id} success={state.success} vc={state.local_vc}")
             state.cond.notify_all()
 

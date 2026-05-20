@@ -7,6 +7,10 @@ from pathlib import Path
 
 from utils.pb.payment import payment_pb2 as payment_pb2
 from utils.pb.payment import payment_pb2_grpc as payment_grpc
+from utils.observability import configure_otel
+
+
+configure_otel("payment")
 
 PAYMENT_PORT = 50059
 DEFAULT_PAYMENT_STATE_FILE = os.getenv("PAYMENT_STATE_FILE", "/app/payment/state/payment_state.json")
